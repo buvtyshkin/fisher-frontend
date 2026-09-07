@@ -6,6 +6,7 @@ import fastifyMultipart from "@fastify/multipart";
 import { config } from "./config.js";
 import { chatRoutes } from "./routes/chats.js";
 import { libraryRoutes } from "./routes/library.js";
+import { chronicleRoutes } from "./routes/chronicles.js";
 import { startCacheRefresher } from "./cache-refresher.js";
 
 const app = Fastify({ logger: { level: "info" } });
@@ -14,6 +15,7 @@ const app = Fastify({ logger: { level: "info" } });
 await app.register(fastifyMultipart, { limits: { fileSize: 25 * 1024 * 1024 } });
 await app.register(chatRoutes);
 await app.register(libraryRoutes);
+await app.register(chronicleRoutes);
 
 app.get("/api/health", async () => ({
   ok: true,

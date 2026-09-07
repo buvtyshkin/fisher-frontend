@@ -84,6 +84,14 @@ export function PromptDebug({
                     .join(" · ")}
             </p>
 
+            {dump.chronicles.length > 0 && (
+              <p className="hint small">
+                Хроники в промпте: {dump.chronicles.length}
+                {dump.hiddenCount > 0 &&
+                  ` · скрыто сообщений из контекста: ${dump.hiddenCount}`}
+              </p>
+            )}
+
             {dump.activatedLore.length > 0 && (
               <details className="lore-fired">
                 <summary>

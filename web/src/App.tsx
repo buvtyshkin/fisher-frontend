@@ -10,6 +10,7 @@ import {
   type Chat,
   type Message,
 } from "./api.ts";
+import { Chronicles } from "./Chronicles.tsx";
 import { Library } from "./Library.tsx";
 import { Markdown } from "./Markdown.tsx";
 import { PromptDebug } from "./PromptDebug.tsx";
@@ -41,6 +42,7 @@ export function App() {
   const [usageOpen, setUsageOpen] = useState(false);
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [promptOpen, setPromptOpen] = useState(false);
+  const [chroniclesOpen, setChroniclesOpen] = useState(false);
 
   const abortRef = useRef<AbortController | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -275,6 +277,14 @@ export function App() {
           <button
             className="usage-button"
             disabled={!activeId}
+            title="Сжатые пересказы прошедших сцен"
+            onClick={() => setChroniclesOpen(true)}
+          >
+            Хроники
+          </button>
+          <button
+            className="usage-button"
+            disabled={!activeId}
             title="Показать собранный запрос к модели"
             onClick={() => setPromptOpen(true)}
           >
@@ -407,6 +417,14 @@ export function App() {
       {usageOpen && <Usage onClose={() => setUsageOpen(false)} />}
       {promptOpen && activeId && (
         <PromptDebug chatId={activeId} onClose={() => setPromptOpen(false)} />
+      )}
+      {chroniclesOpen && activeId && (
+        <Chronicles
+          chatId={activeId}
+          messages={messages}
+          onClose={() => setChroniclesOpen(false)}
+          onChanged={() => void reload(activeId)}
+        />
       )}
       {libraryOpen && activeChat && (
         <Library

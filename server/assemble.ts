@@ -1,5 +1,7 @@
 import {
   chatLorebooks,
+  chroniclesForBranch,
+  getBranch,
   getChat,
   getCharacter,
   getPersona,
@@ -15,6 +17,7 @@ import { DEFAULT_WORLD_INFO_SETTINGS, keyScanEngine } from "./lorebook/engine.js
 import { placeEntries } from "./lorebook/placement.js";
 import { applyCache, planCache } from "./preset/cache.js";
 import { config } from "./config.js";
+import { renderChronicles } from "./store.js";
 
 /**
  * Assembles the request for a chat: preset blocks, card, persona, lorebooks and
@@ -49,7 +52,17 @@ export function chatContext(chatId: string) {
 export function assemble(chatId: string, branch: Message[], extraUser?: string) {
   const { card, persona, preset } = chatContext(chatId);
   const { lore, activated } = scanLore(chatId, branch);
-  const built = buildPrompt({ preset, card, persona, branch, extraUser, lore });
+  const { visible, hidden } = chroniclesForBranch(chatId, branch);
+  const built = buildPrompt({
+    preset,
+    card,
+    persona,
+    branch,
+    extraUser,
+    lore,
+    summary: renderChronicles(visible),
+    hidden,
+  });
 
   const plan = planCache(built.messages, built.messageParts, config.cache);
   const cached = applyCache(built.system, built.messages, plan);
@@ -78,6 +91,13 @@ export function assemble(chatId: string, branch: Message[], extraUser?: string) 
     cache: plan,
     maxTokens: preset.maxTokens ?? undefined,
     activatedLore: activated,
+    chronicles: visible.map((chronicle) => ({
+      id: chronicle.id,
+      level: chronicle.level,
+      title: chronicle.title,
+      hidesMessages: chronicle.hide_covered === 1,
+    })),
+    hiddenCount: hidden.size,
   };
 }
 

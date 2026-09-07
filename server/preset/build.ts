@@ -19,8 +19,10 @@ export interface BuildInput {
   branch: Message[];
   /** Appended as a final user turn — the continue and next-beat nudges. */
   extraUser?: string;
-  /** Chronicle text for {{summary}}; empty until phase 6. */
+  /** Chronicle text for {{summary}} and the chronicle block. */
   summary?: string;
+  /** Messages a chronicle replaces: kept in the tree, left out of the request. */
+  hidden?: Set<string>;
   /** Activated lorebook entries, already placed into their slots. */
   lore?: PlacedLore;
 }
@@ -94,6 +96,9 @@ export function buildPrompt(input: BuildInput): BuiltPrompt {
         return card?.mes_example
           ? `${preset.newExampleChatPrompt}\n${card.mes_example}`
           : "";
+      case "chronicle":
+      case "summary":
+        return input.summary ?? "";
       case "worldInfoBefore":
         return input.lore?.before ?? "";
       case "worldInfoAfter":
@@ -230,6 +235,7 @@ function buildHistory(
 ): PromptPart[] {
   const history: PromptPart[] = input.branch
     .filter((message) => message.role !== "system")
+    .filter((message) => !input.hidden?.has(message.id))
     .map((message) => ({
       identifier: CHAT_HISTORY,
       name: message.role === "assistant" ? "Ответ модели" : "Ход игрока",

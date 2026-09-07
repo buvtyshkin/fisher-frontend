@@ -5,6 +5,8 @@ import {
   type CharacterRow,
   type Message,
   type PersonaRow,
+  type ChronicleLevel,
+  type ChronicleRow,
   type LorebookRow,
   type PresetRow,
 } from "./db.js";
@@ -373,6 +375,30 @@ export function usageSince(since: number): UsageBucket {
     cost: number | null;
   };
 
+  const chronicles = db
+    .prepare(
+      `SELECT SUM(input_tokens)                AS input,
+              SUM(output_tokens)               AS output,
+              SUM(cache_creation_input_tokens) AS cacheWrite,
+              SUM(cache_read_input_tokens)     AS cacheRead,
+              SUM(cost_usd)                    AS cost
+         FROM chronicles
+        WHERE created_at >= ? AND cost_usd IS NOT NULL`,
+    )
+    .get(since) as {
+    input: number | null;
+    output: number | null;
+    cacheWrite: number | null;
+    cacheRead: number | null;
+    cost: number | null;
+  };
+
+  bucket.input += chronicles.input ?? 0;
+  bucket.output += chronicles.output ?? 0;
+  bucket.cacheWrite += chronicles.cacheWrite ?? 0;
+  bucket.cacheRead += chronicles.cacheRead ?? 0;
+  bucket.cost += chronicles.cost ?? 0;
+
   bucket.refreshes = refresh.n;
   bucket.refreshCost = refresh.cost ?? 0;
   bucket.input += refresh.input ?? 0;
@@ -679,4 +705,151 @@ export function detachLorebook(chatId: string, lorebookId: string): void {
   db.prepare(
     "DELETE FROM chat_lorebooks WHERE chat_id = ? AND lorebook_id = ?",
   ).run(chatId, lorebookId);
+}
+
+/* ── Chronicles ──────────────────────────────────────────────────────────── */
+
+export const CHRONICLE_ORDER: ChronicleLevel[] = ["scene", "arc", "chapter"];
+
+export function listChronicles(chatId: string): ChronicleRow[] {
+  return db
+    .prepare("SELECT * FROM chronicles WHERE chat_id = ? ORDER BY created_at")
+    .all(chatId) as ChronicleRow[];
+}
+
+export function getChronicle(id: string): ChronicleRow | undefined {
+  return db.prepare("SELECT * FROM chronicles WHERE id = ?").get(id) as
+    | ChronicleRow
+    | undefined;
+}
+
+export function saveChronicle(input: {
+  chatId: string;
+  level: ChronicleLevel;
+  title: string;
+  content: string;
+  anchorMessageId: string;
+  fromMessageId: string | null;
+  toMessageId: string | null;
+  hideCovered: boolean;
+  model?: string | null;
+  usage?: TokenCounts | null;
+}): ChronicleRow {
+  const row: ChronicleRow = {
+    id: randomUUID(),
+    chat_id: input.chatId,
+    level: input.level,
+    title: input.title,
+    content: input.content,
+    anchor_message_id: input.anchorMessageId,
+    from_message_id: input.fromMessageId,
+    to_message_id: input.toMessageId,
+    hide_covered: input.hideCovered ? 1 : 0,
+    created_at: Date.now(),
+    model: input.model ?? null,
+    input_tokens: input.usage?.input ?? null,
+    output_tokens: input.usage?.output ?? null,
+    cache_creation_input_tokens: input.usage?.cacheWrite ?? null,
+    cache_read_input_tokens: input.usage?.cacheRead ?? null,
+    cost_usd: input.usage ? costOf(input.model ?? null, input.usage) : null,
+  };
+
+  db.prepare(
+    `INSERT INTO chronicles
+       (id, chat_id, level, title, content, anchor_message_id, from_message_id,
+        to_message_id, hide_covered, created_at, model, input_tokens,
+        output_tokens, cache_creation_input_tokens, cache_read_input_tokens, cost_usd)
+     VALUES
+       (@id, @chat_id, @level, @title, @content, @anchor_message_id, @from_message_id,
+        @to_message_id, @hide_covered, @created_at, @model, @input_tokens,
+        @output_tokens, @cache_creation_input_tokens, @cache_read_input_tokens, @cost_usd)`,
+  ).run(row);
+  return row;
+}
+
+export function updateChronicle(
+  id: string,
+  input: { title?: string; content?: string; hideCovered?: boolean },
+): ChronicleRow | undefined {
+  const chronicle = getChronicle(id);
+  if (!chronicle) return undefined;
+
+  db.prepare(
+    "UPDATE chronicles SET title = ?, content = ?, hide_covered = ? WHERE id = ?",
+  ).run(
+    input.title ?? chronicle.title,
+    input.content ?? chronicle.content,
+    input.hideCovered === undefined
+      ? chronicle.hide_covered
+      : input.hideCovered
+        ? 1
+        : 0,
+    id,
+  );
+  return getChronicle(id);
+}
+
+export function deleteChronicle(id: string): void {
+  db.prepare("DELETE FROM chronicles WHERE id = ?").run(id);
+}
+
+export interface BranchChronicles {
+  /** Visible here: the anchor lies on the branch in view. */
+  visible: ChronicleRow[];
+  /** Message ids the visible chronicles cover and asked to hide. */
+  hidden: Set<string>;
+}
+
+/**
+ * Chronicles that belong to the branch in view, plus the messages they replace.
+ *
+ * A chronicle is visible only if its anchor is on the path from the root to the
+ * current leaf — that single rule is what stops one branch's summary from
+ * leaking into a parallel one. The covered range is resolved against the same
+ * path, so a range that diverged from this branch hides nothing.
+ */
+export function chroniclesForBranch(
+  chatId: string,
+  branch: Message[],
+): BranchChronicles {
+  const position = new Map(branch.map((message, index) => [message.id, index]));
+  const visible = listChronicles(chatId)
+    .filter((chronicle) => position.has(chronicle.anchor_message_id))
+    .sort(
+      (a, b) =>
+        position.get(a.anchor_message_id)! - position.get(b.anchor_message_id)!,
+    );
+
+  const hidden = new Set<string>();
+  for (const chronicle of visible) {
+    if (!chronicle.hide_covered) continue;
+
+    const from = position.get(chronicle.from_message_id ?? "");
+    const to = position.get(chronicle.to_message_id ?? "");
+    if (from === undefined || to === undefined) continue;
+
+    for (let i = Math.min(from, to); i <= Math.max(from, to); i++) {
+      hidden.add(branch[i].id);
+    }
+  }
+
+  return { visible, hidden };
+}
+
+/** The chronicle text as it goes into the prompt. */
+export function renderChronicles(chronicles: ChronicleRow[]): string {
+  const label: Record<ChronicleLevel, string> = {
+    scene: "Сцена",
+    arc: "Арка",
+    chapter: "Глава",
+  };
+
+  return chronicles
+    .map((chronicle) => {
+      const heading = chronicle.title
+        ? `[${label[chronicle.level]}: ${chronicle.title}]`
+        : `[${label[chronicle.level]}]`;
+      return `${heading}\n${chronicle.content.trim()}`;
+    })
+    .join("\n\n");
 }

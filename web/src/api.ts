@@ -44,6 +44,23 @@ export interface Preset {
   created_at: number;
 }
 
+export type ChronicleLevel = "scene" | "arc" | "chapter";
+
+export interface Chronicle {
+  id: string;
+  level: ChronicleLevel;
+  title: string;
+  content: string;
+  anchor_message_id: string;
+  from_message_id: string | null;
+  to_message_id: string | null;
+  hide_covered: boolean;
+  created_at: number;
+  cost_usd: number | null;
+  /** False means it belongs to another branch and is not in play here. */
+  on_branch: boolean;
+}
+
 export interface Lorebook {
   id: string;
   name: string;
@@ -66,6 +83,8 @@ export interface PromptDump {
   warnings: string[];
   emptyBlocks: { identifier: string; name: string }[];
   activatedLore: { title: string; reason: string }[];
+  chronicles: { id: string; level: string; title: string; hidesMessages: boolean }[];
+  hiddenCount: number;
   cache: {
     requestedDepth: number;
     breakpoints: number[];
@@ -181,6 +200,34 @@ export const api = {
   deletePreset: (id: string) =>
     json<void>(`/api/presets/${id}`, { method: "DELETE" }),
   prompt: (chatId: string) => json<PromptDump>(`/api/chats/${chatId}/prompt`),
+
+  listChronicles: (chatId: string) =>
+    json<Chronicle[]>(`/api/chats/${chatId}/chronicles`),
+  createChronicle: (
+    chatId: string,
+    body: {
+      level: ChronicleLevel;
+      title: string;
+      content: string;
+      fromMessageId: string;
+      toMessageId: string;
+      hideCovered: boolean;
+    },
+  ) =>
+    json<{ id: string }>(`/api/chats/${chatId}/chronicles`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  updateChronicle: (
+    id: string,
+    body: { title?: string; content?: string; hideCovered?: boolean },
+  ) =>
+    json<{ id: string }>(`/api/chronicles/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+  deleteChronicle: (id: string) =>
+    json<void>(`/api/chronicles/${id}`, { method: "DELETE" }),
 
   listLorebooks: () => json<Lorebook[]>("/api/lorebooks"),
   deleteLorebook: (id: string) =>
@@ -311,6 +358,14 @@ export const generateReply = (
   handlers: StreamHandlers,
   signal?: AbortSignal,
 ) => stream(`/api/chats/${chatId}/generate`, {}, handlers, signal);
+
+/** Streams a summary of a message range; nothing is saved until you save it. */
+export const generateChronicle = (
+  chatId: string,
+  body: { level: ChronicleLevel; fromMessageId: string; toMessageId: string },
+  handlers: StreamHandlers,
+  signal?: AbortSignal,
+) => stream(`/api/chats/${chatId}/chronicles/generate`, body, handlers, signal);
 
 /** Continues a reply that stopped mid-sentence, in place. */
 export const continueMessage = (

@@ -256,6 +256,8 @@ export async function chatRoutes(app: FastifyInstance) {
       warnings: built.warnings,
       emptyBlocks: built.emptyBlocks,
       activatedLore: built.activatedLore,
+      chronicles: built.chronicles,
+      hiddenCount: built.hiddenCount,
       cache: {
         requestedDepth: built.cache.requestedDepth,
         breakpoints: built.cache.breakpoints,

@@ -18,6 +18,7 @@ const marker = (identifier: string, name: string): PresetPrompt => ({
 
 const prompts: PresetPrompt[] = [
   marker("worldInfoBefore", "Лорбук (до карточки)"),
+  marker("chronicle", "Хроники"),
   marker("charDescription", "Описание персонажа"),
   marker("charPersonality", "Характер"),
   marker("scenario", "Сцена"),

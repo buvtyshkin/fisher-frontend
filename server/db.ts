@@ -75,6 +75,30 @@ db.exec(`
     PRIMARY KEY (chat_id, lorebook_id)
   );
 
+  -- A chronicle hangs off a node of the tree: it is visible only while its
+  -- anchor lies on the path from the root to the current leaf, which is what
+  -- keeps one branch's summary out of a parallel branch.
+  CREATE TABLE IF NOT EXISTS chronicles (
+    id                TEXT PRIMARY KEY,
+    chat_id           TEXT NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
+    level             TEXT NOT NULL CHECK (level IN ('scene', 'arc', 'chapter')),
+    title             TEXT NOT NULL DEFAULT '',
+    content           TEXT NOT NULL,
+    anchor_message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+    from_message_id   TEXT,
+    to_message_id     TEXT,
+    hide_covered      INTEGER NOT NULL DEFAULT 0,
+    created_at        INTEGER NOT NULL,
+    model             TEXT,
+    input_tokens      INTEGER,
+    output_tokens     INTEGER,
+    cache_creation_input_tokens INTEGER,
+    cache_read_input_tokens     INTEGER,
+    cost_usd          REAL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_chronicles_chat ON chronicles(chat_id);
+
   -- Keep-alive requests cost money too; they must show up in the totals.
   CREATE TABLE IF NOT EXISTS cache_refreshes (
     id                          TEXT PRIMARY KEY,
@@ -178,6 +202,28 @@ export interface PresetRow {
   /** The imported preset JSON, verbatim. */
   data: string;
   created_at: number;
+}
+
+export type ChronicleLevel = "scene" | "arc" | "chapter";
+
+export interface ChronicleRow {
+  id: string;
+  chat_id: string;
+  level: ChronicleLevel;
+  title: string;
+  content: string;
+  /** The node the chronicle hangs off; decides which branches can see it. */
+  anchor_message_id: string;
+  from_message_id: string | null;
+  to_message_id: string | null;
+  hide_covered: number;
+  created_at: number;
+  model: string | null;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  cache_creation_input_tokens: number | null;
+  cache_read_input_tokens: number | null;
+  cost_usd: number | null;
 }
 
 export interface LorebookRow {
