@@ -11,14 +11,21 @@ import {
   getBranch,
   getBranchWithSiblings,
   getChat,
+  bindChat,
+  countMessages,
+  getCharacter,
   getMessage,
+  getPersona,
   listChats,
   pathTo,
   renameChat,
   setActiveLeaf,
+  seedGreetings,
   startOfToday,
   usageSince,
 } from "../store.js";
+import { applyNameMacros, greetingsOf, type CardData } from "../cards/card.js";
+import { buildSystemPrompt, DEFAULT_USER_NAME } from "../prompt.js";
 import type { Message } from "../db.js";
 import { anthropicAdapter } from "../provider.js";
 
@@ -67,8 +74,22 @@ export function toApiMessages(
   return turns;
 }
 
+/** The card and persona a chat is bound to, plus the system prompt they make. */
+function chatContext(chatId: string) {
+  const chat = getChat(chatId);
+  const character = chat?.character_id ? getCharacter(chat.character_id) : undefined;
+  const persona = chat?.persona_id ? getPersona(chat.persona_id) : undefined;
+  const card = character ? (JSON.parse(character.data) as CardData) : null;
+  return {
+    card,
+    persona: persona ?? null,
+    system: buildSystemPrompt(card, persona ?? null),
+  };
+}
+
 interface StreamOptions {
   context: Message[];
+  system?: string;
   extraUser?: string;
   /** Called once the model finishes; returns the message to report as done. */
   onComplete: (
@@ -113,6 +134,7 @@ async function streamGeneration(
   try {
     const result = await anthropicAdapter.streamReply(
       {
+        system: options.system,
         messages: toApiMessages(options.context, options.extraUser),
         signal: controller.signal,
       },
@@ -160,6 +182,45 @@ export async function chatRoutes(app: FastifyInstance) {
     return {
       messages: getBranchWithSiblings(req.params.id),
       leaves: countLeaves(req.params.id),
+    };
+  });
+
+  /**
+   * Binds a character and/or persona. Binding a card to a still-empty chat
+   * seeds its greetings, with the alternates as siblings of the first.
+   */
+  app.post<{
+    Params: IdParams;
+    Body: { characterId?: string | null; personaId?: string | null };
+  }>("/api/chats/:id/bind", async (req, reply) => {
+    const chat = getChat(req.params.id);
+    if (!chat) return reply.code(404).send({ error: "not found" });
+
+    if (req.body?.characterId && !getCharacter(req.body.characterId)) {
+      return reply.code(404).send({ error: "персонаж не найден" });
+    }
+    if (req.body?.personaId && !getPersona(req.body.personaId)) {
+      return reply.code(404).send({ error: "персона не найдена" });
+    }
+
+    const updated = bindChat(chat.id, req.body ?? {})!;
+    const { card, persona } = chatContext(chat.id);
+
+    if (card && countMessages(chat.id) === 0) {
+      const names = {
+        char: card.name,
+        user: persona?.name?.trim() || DEFAULT_USER_NAME,
+      };
+      seedGreetings(
+        chat.id,
+        greetingsOf(card).map((greeting) => applyNameMacros(greeting, names)),
+      );
+    }
+
+    return {
+      chat: updated,
+      messages: getBranchWithSiblings(chat.id),
+      leaves: countLeaves(chat.id),
     };
   });
 
@@ -231,6 +292,7 @@ export async function chatRoutes(app: FastifyInstance) {
         reply,
         {
           context: [...branch, userMessage],
+          system: chatContext(chat.id).system,
           onComplete: (text, model, usage) =>
             appendMessage({
               chatId: chat.id,
@@ -261,9 +323,9 @@ export async function chatRoutes(app: FastifyInstance) {
       return reply.code(400).send({ error: "only assistant messages can be swiped" });
     }
 
-    const context = pathTo(target.parent_id);
     await streamGeneration(app, reply, {
-      context,
+      context: pathTo(target.parent_id),
+      system: chatContext(target.chat_id).system,
       onComplete: (text, model, usage) =>
         appendMessage({
           chatId: target.chat_id,
@@ -293,6 +355,7 @@ export async function chatRoutes(app: FastifyInstance) {
 
     await streamGeneration(app, reply, {
       context: pathTo(target.id),
+      system: chatContext(target.chat_id).system,
       extraUser: CONTINUE_INSTRUCTION,
       onComplete: (text, model, usage) =>
         appendToMessage(target.id, text, model, usage ?? null),

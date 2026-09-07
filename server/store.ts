@@ -1,5 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { db, type Chat, type Message } from "./db.js";
+import {
+  db,
+  type Chat,
+  type CharacterRow,
+  type Message,
+  type PersonaRow,
+} from "./db.js";
 import { costOf, type TokenCounts } from "./pricing.js";
 
 export function listChats(): Chat[] {
@@ -22,11 +28,18 @@ export function createChat(title: string): Chat {
     created_at: now,
     updated_at: now,
     active_leaf_id: null,
+    character_id: null,
+    persona_id: null,
   };
   db.prepare(
     `INSERT INTO chats (id, title, created_at, updated_at, active_leaf_id)
-     VALUES (@id, @title, @created_at, @updated_at, @active_leaf_id)`,
-  ).run(chat);
+     VALUES (@id, @title, @created_at, @updated_at, NULL)`,
+  ).run({
+    id: chat.id,
+    title: chat.title,
+    created_at: chat.created_at,
+    updated_at: chat.updated_at,
+  });
   return chat;
 }
 
@@ -74,15 +87,19 @@ export function getBranch(chatId: string): Message[] {
 }
 
 /**
- * Alternative children of the same parent, oldest first. Swipes, edits and
- * branches are all just siblings, so one query serves all three.
+ * Alternative children of the same parent, in insertion order. Swipes, edits
+ * and branches are all just siblings, so one query serves all three.
+ *
+ * Ordering is by rowid, not created_at: several siblings are routinely written
+ * inside the same millisecond — a card's greetings always are — and a
+ * timestamp tie would shuffle them.
  */
 export function getSiblings(message: Message): Message[] {
   return db
     .prepare(
       `SELECT * FROM messages
         WHERE chat_id = ? AND parent_id IS ?
-        ORDER BY created_at, id`,
+        ORDER BY rowid`,
     )
     .all(message.chat_id, message.parent_id) as Message[];
 }
@@ -90,7 +107,7 @@ export function getSiblings(message: Message): Message[] {
 /** Follows the most recent child down to a leaf — the last path taken here. */
 export function deepestLeaf(messageId: string): string {
   const newestChild = db.prepare(
-    "SELECT id FROM messages WHERE parent_id = ? ORDER BY created_at DESC, id DESC LIMIT 1",
+    "SELECT id FROM messages WHERE parent_id = ? ORDER BY rowid DESC LIMIT 1",
   );
   const seen = new Set<string>();
   let cursor = messageId;
@@ -310,4 +327,156 @@ export function startOfToday(now = new Date()): number {
   const midnight = new Date(now);
   midnight.setHours(0, 0, 0, 0);
   return midnight.getTime();
+}
+
+/* ── Characters ──────────────────────────────────────────────────────────── */
+
+export function listCharacters(): Omit<CharacterRow, "avatar" | "data">[] {
+  return db
+    .prepare("SELECT id, name, spec, created_at FROM characters ORDER BY name")
+    .all() as Omit<CharacterRow, "avatar" | "data">[];
+}
+
+export function getCharacter(id: string): CharacterRow | undefined {
+  return db.prepare("SELECT * FROM characters WHERE id = ?").get(id) as
+    | CharacterRow
+    | undefined;
+}
+
+export function saveCharacter(input: {
+  name: string;
+  spec: string;
+  data: string;
+  avatar: Buffer | null;
+}): CharacterRow {
+  const row: CharacterRow = {
+    id: randomUUID(),
+    name: input.name,
+    spec: input.spec,
+    data: input.data,
+    avatar: input.avatar,
+    created_at: Date.now(),
+  };
+  db.prepare(
+    `INSERT INTO characters (id, name, spec, data, avatar, created_at)
+     VALUES (@id, @name, @spec, @data, @avatar, @created_at)`,
+  ).run(row);
+  return row;
+}
+
+export function deleteCharacter(id: string): void {
+  db.transaction(() => {
+    db.prepare("UPDATE chats SET character_id = NULL WHERE character_id = ?").run(id);
+    db.prepare("DELETE FROM characters WHERE id = ?").run(id);
+  })();
+}
+
+/* ── Personas ────────────────────────────────────────────────────────────── */
+
+export function listPersonas(): Omit<PersonaRow, "avatar">[] {
+  return db
+    .prepare("SELECT id, name, description, created_at FROM personas ORDER BY name")
+    .all() as Omit<PersonaRow, "avatar">[];
+}
+
+export function getPersona(id: string): PersonaRow | undefined {
+  return db.prepare("SELECT * FROM personas WHERE id = ?").get(id) as
+    | PersonaRow
+    | undefined;
+}
+
+export function savePersona(input: {
+  name: string;
+  description: string;
+}): PersonaRow {
+  const row: PersonaRow = {
+    id: randomUUID(),
+    name: input.name,
+    description: input.description,
+    avatar: null,
+    created_at: Date.now(),
+  };
+  db.prepare(
+    `INSERT INTO personas (id, name, description, avatar, created_at)
+     VALUES (@id, @name, @description, NULL, @created_at)`,
+  ).run({
+    id: row.id,
+    name: row.name,
+    description: row.description,
+    created_at: row.created_at,
+  });
+  return row;
+}
+
+export function updatePersona(
+  id: string,
+  input: { name?: string; description?: string; avatar?: Buffer },
+): PersonaRow | undefined {
+  const persona = getPersona(id);
+  if (!persona) return undefined;
+  db.prepare(
+    "UPDATE personas SET name = ?, description = ?, avatar = ? WHERE id = ?",
+  ).run(
+    input.name?.trim() || persona.name,
+    input.description ?? persona.description,
+    input.avatar ?? persona.avatar,
+    id,
+  );
+  return getPersona(id);
+}
+
+export function deletePersona(id: string): void {
+  db.transaction(() => {
+    db.prepare("UPDATE chats SET persona_id = NULL WHERE persona_id = ?").run(id);
+    db.prepare("DELETE FROM personas WHERE id = ?").run(id);
+  })();
+}
+
+/* ── Binding a chat ──────────────────────────────────────────────────────── */
+
+export function bindChat(
+  chatId: string,
+  input: { characterId?: string | null; personaId?: string | null },
+): Chat | undefined {
+  const chat = getChat(chatId);
+  if (!chat) return undefined;
+
+  db.prepare(
+    "UPDATE chats SET character_id = ?, persona_id = ?, updated_at = ? WHERE id = ?",
+  ).run(
+    input.characterId === undefined ? chat.character_id : input.characterId,
+    input.personaId === undefined ? chat.persona_id : input.personaId,
+    Date.now(),
+    chatId,
+  );
+  return getChat(chatId);
+}
+
+export function countMessages(chatId: string): number {
+  const row = db
+    .prepare("SELECT COUNT(*) AS n FROM messages WHERE chat_id = ?")
+    .get(chatId) as { n: number };
+  return row.n;
+}
+
+/**
+ * Seeds a fresh chat with the card's greetings. Alternates become siblings of
+ * the first one — the same mechanism as a swipe — and the first stays active.
+ */
+export function seedGreetings(chatId: string, greetings: string[]): void {
+  if (greetings.length === 0) return;
+
+  db.transaction(() => {
+    let firstId: string | null = null;
+    for (const greeting of greetings) {
+      const message = appendMessage({
+        chatId,
+        parentId: null,
+        role: "assistant",
+        content: greeting,
+      });
+      firstId ??= message.id;
+    }
+    if (firstId) setActiveLeaf(chatId, firstId);
+  })();
 }

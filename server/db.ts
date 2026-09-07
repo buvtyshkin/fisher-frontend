@@ -37,6 +37,23 @@ db.exec(`
     cost_usd                    REAL
   );
 
+  CREATE TABLE IF NOT EXISTS characters (
+    id         TEXT PRIMARY KEY,
+    name       TEXT NOT NULL,
+    spec       TEXT NOT NULL,
+    data       TEXT NOT NULL,
+    avatar     BLOB,
+    created_at INTEGER NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS personas (
+    id          TEXT PRIMARY KEY,
+    name        TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    avatar      BLOB,
+    created_at  INTEGER NOT NULL
+  );
+
   CREATE INDEX IF NOT EXISTS idx_messages_chat    ON messages(chat_id);
   CREATE INDEX IF NOT EXISTS idx_messages_parent  ON messages(parent_id);
   CREATE INDEX IF NOT EXISTS idx_messages_created ON messages(created_at);
@@ -55,6 +72,8 @@ function addColumnIfMissing(table: string, column: string, declaration: string) 
 addColumnIfMissing("messages", "cache_creation_input_tokens", "INTEGER");
 addColumnIfMissing("messages", "cache_read_input_tokens", "INTEGER");
 addColumnIfMissing("messages", "cost_usd", "REAL");
+addColumnIfMissing("chats", "character_id", "TEXT REFERENCES characters(id)");
+addColumnIfMissing("chats", "persona_id", "TEXT REFERENCES personas(id)");
 
 /**
  * Cost is frozen at generation time, so editing pricing.json never rewrites
@@ -103,6 +122,26 @@ export interface Chat {
   created_at: number;
   updated_at: number;
   active_leaf_id: string | null;
+  character_id: string | null;
+  persona_id: string | null;
+}
+
+export interface CharacterRow {
+  id: string;
+  name: string;
+  spec: string;
+  /** The card's `data` object, as imported. */
+  data: string;
+  avatar: Buffer | null;
+  created_at: number;
+}
+
+export interface PersonaRow {
+  id: string;
+  name: string;
+  description: string;
+  avatar: Buffer | null;
+  created_at: number;
 }
 
 export interface Message {

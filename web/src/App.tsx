@@ -5,9 +5,11 @@ import {
   sendMessage,
   swipeMessage,
   type Branch,
+  type Character,
   type Chat,
   type Message,
 } from "./api.ts";
+import { Library } from "./Library.tsx";
 import { Markdown } from "./Markdown.tsx";
 import { Usage } from "./Usage.tsx";
 
@@ -20,6 +22,7 @@ type Generation =
 
 export function App() {
   const [chats, setChats] = useState<Chat[]>([]);
+  const [characters, setCharacters] = useState<Character[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [branch, setBranch] = useState<Branch>({ messages: [], leaves: 0 });
   const [draft, setDraft] = useState("");
@@ -30,6 +33,7 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [usageOpen, setUsageOpen] = useState(false);
+  const [libraryOpen, setLibraryOpen] = useState(false);
 
   const abortRef = useRef<AbortController | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -38,7 +42,12 @@ export function App() {
   const messages = branch.messages;
 
   const refreshChats = useCallback(async () => {
-    setChats(await api.listChats());
+    const [nextChats, nextCharacters] = await Promise.all([
+      api.listChats(),
+      api.listCharacters(),
+    ]);
+    setChats(nextChats);
+    setCharacters(nextCharacters);
   }, []);
 
   const reload = useCallback(async (chatId: string) => {
@@ -172,6 +181,8 @@ export function App() {
   }
 
   const activeChat = chats.find((c) => c.id === activeId) ?? null;
+  const character = characters.find((c) => c.id === activeChat?.character_id);
+  const characterName = character?.name;
   const lastMessage = messages.at(-1);
 
   // A swipe replaces the message it started from, so hide it while streaming.
@@ -213,6 +224,11 @@ export function App() {
         <header className="topbar">
           <button className="burger" onClick={() => setSidebarOpen((v) => !v)}>☰</button>
           <span className="title">{activeChat?.title ?? "Fisher"}</span>
+          {activeChat && (
+            <button className="usage-button" onClick={() => setLibraryOpen(true)}>
+              {characterName ?? "Персонаж"}
+            </button>
+          )}
           {activeId && branch.leaves > 1 && (
             <span className="leaves" title="Веток в этом чате">
               веток: {branch.leaves}
@@ -232,6 +248,14 @@ export function App() {
 
             return (
               <article key={message.id} className={`message ${message.role}`}>
+                {message.role === "assistant" && character && (
+                  <img
+                    className="portrait"
+                    src={`/api/characters/${character.id}/avatar`}
+                    alt=""
+                    onError={(e) => (e.currentTarget.style.display = "none")}
+                  />
+                )}
                 {editingId === message.id ? (
                   <div className="editor">
                     <textarea
@@ -301,6 +325,16 @@ export function App() {
       </main>
 
       {usageOpen && <Usage onClose={() => setUsageOpen(false)} />}
+      {libraryOpen && activeChat && (
+        <Library
+          chat={activeChat}
+          onClose={() => setLibraryOpen(false)}
+          onBound={() => {
+            void refreshChats();
+            if (activeId) void reload(activeId);
+          }}
+        />
+      )}
     </div>
   );
 }

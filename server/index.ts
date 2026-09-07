@@ -2,12 +2,17 @@ import path from "node:path";
 import fs from "node:fs";
 import Fastify from "fastify";
 import fastifyStatic from "@fastify/static";
+import fastifyMultipart from "@fastify/multipart";
 import { config } from "./config.js";
 import { chatRoutes } from "./routes/chats.js";
+import { libraryRoutes } from "./routes/library.js";
 
 const app = Fastify({ logger: { level: "info" } });
 
+// Character cards are PNGs; a big portrait can legitimately be a few megabytes.
+await app.register(fastifyMultipart, { limits: { fileSize: 25 * 1024 * 1024 } });
 await app.register(chatRoutes);
+await app.register(libraryRoutes);
 
 app.get("/api/health", async () => ({
   ok: true,

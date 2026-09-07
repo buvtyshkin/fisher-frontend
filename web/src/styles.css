@@ -209,3 +209,55 @@ button:disabled { opacity: .4; cursor: default; }
   /* No hover on a phone — keep the controls readable at all times. */
   .controls { opacity: 1; }
 }
+
+/* Character / persona library */
+.panel.wide { max-width: 620px; }
+.period h3 button { font-size: 12px; font-weight: 400; }
+.library { list-style: none; margin: 0 0 10px; padding: 0; }
+.library .row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 6px 8px; border-radius: 6px; font-size: 14px;
+}
+.library .row:hover { background: #22262e; }
+.library .row.active { background: #262c38; }
+.library .row-name { flex: 1; display: flex; align-items: center; gap: 8px; }
+.library .row-actions { display: flex; gap: 4px; }
+.library .row-actions button, .library .row-actions .button { padding: 3px 9px; font-size: 12px; }
+.library .tag {
+  font-family: ui-monospace, monospace; font-size: 11px;
+  color: var(--text-dim); border: 1px solid var(--border);
+  border-radius: 4px; padding: 0 5px;
+}
+.avatar {
+  width: 34px; height: 34px; border-radius: 5px;
+  object-fit: cover; background: var(--bg);
+}
+a.button {
+  display: inline-block; text-decoration: none;
+  background: var(--bg-raised); color: var(--text);
+  border: 1px solid var(--border); border-radius: 6px;
+}
+a.button:hover { border-color: var(--accent); color: var(--accent); }
+.linkish {
+  background: none; border: none; padding: 0 0 0 6px;
+  color: var(--accent); font-size: 12px; text-decoration: underline;
+}
+.persona-form { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.persona-form input, .persona-form textarea {
+  background: var(--bg); color: var(--text);
+  border: 1px solid var(--border); border-radius: 6px;
+  padding: 8px 10px; font: inherit; font-size: 14px; resize: vertical;
+}
+.persona-form input:focus, .persona-form textarea:focus {
+  outline: none; border-color: var(--accent);
+}
+
+/* Character portrait beside a reply */
+.message.assistant { position: relative; }
+.portrait {
+  float: left; width: 44px; height: 44px; border-radius: 6px;
+  object-fit: cover; margin: 2px 14px 8px 0;
+}
+@media (max-width: 720px) {
+  .portrait { width: 34px; height: 34px; margin-right: 10px; }
+}

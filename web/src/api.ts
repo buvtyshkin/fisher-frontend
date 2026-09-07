@@ -4,6 +4,22 @@ export interface Chat {
   created_at: number;
   updated_at: number;
   active_leaf_id: string | null;
+  character_id: string | null;
+  persona_id: string | null;
+}
+
+export interface Character {
+  id: string;
+  name: string;
+  spec: string;
+  created_at: number;
+}
+
+export interface Persona {
+  id: string;
+  name: string;
+  description: string;
+  created_at: number;
 }
 
 export interface Message {
@@ -78,7 +94,46 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ content }),
     }),
+
+  listCharacters: () => json<Character[]>("/api/characters"),
+  deleteCharacter: (id: string) =>
+    json<void>(`/api/characters/${id}`, { method: "DELETE" }),
+
+  listPersonas: () => json<Persona[]>("/api/personas"),
+  createPersona: (name: string, description: string) =>
+    json<Persona>("/api/personas", {
+      method: "POST",
+      body: JSON.stringify({ name, description }),
+    }),
+  updatePersona: (id: string, name: string, description: string) =>
+    json<Persona>(`/api/personas/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ name, description }),
+    }),
+  deletePersona: (id: string) =>
+    json<void>(`/api/personas/${id}`, { method: "DELETE" }),
+
+  /** Binds a card and/or persona; seeds greetings if the chat is still empty. */
+  bind: (
+    chatId: string,
+    body: { characterId?: string | null; personaId?: string | null },
+  ) =>
+    json<Branch & { chat: Chat }>(`/api/chats/${chatId}/bind`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
 };
+
+/** Uploads a card PNG/JSON or a persona avatar as multipart form data. */
+export async function upload(url: string, file: File): Promise<void> {
+  const form = new FormData();
+  form.append("file", file);
+  const response = await fetch(url, { method: "POST", body: form });
+  if (!response.ok) {
+    const detail = await response.json().catch(() => null);
+    throw new Error(detail?.error ?? `${response.status} ${response.statusText}`);
+  }
+}
 
 export interface StreamHandlers {
   /** Only a new turn emits this — swipes and continues have no user message. */
