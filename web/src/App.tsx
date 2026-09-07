@@ -191,11 +191,11 @@ export function App() {
 /** Token and cost line under an assistant reply. */
 function Meta({ message }: { message: Message }) {
   const cost =
-    message.cost === null
+    message.cost_usd === null
       ? "цена не задана"
-      : message.cost >= 0.01
-        ? `$${message.cost.toFixed(2)}`
-        : `$${message.cost.toFixed(4)}`;
+      : message.cost_usd >= 0.01
+        ? `$${message.cost_usd.toFixed(2)}`
+        : `$${message.cost_usd.toFixed(4)}`;
 
   return (
     <div className="meta">

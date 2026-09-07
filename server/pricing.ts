@@ -15,7 +15,9 @@ export interface TokenCounts {
   cacheRead: number;
 }
 
-const PRICING_FILE = path.resolve(process.cwd(), "pricing.json");
+const PRICING_FILE = process.env.PRICING_FILE
+  ? path.resolve(process.env.PRICING_FILE)
+  : path.resolve(process.cwd(), "pricing.json");
 
 let cached: { mtimeMs: number; models: Record<string, ModelPrice> } | null = null;
 

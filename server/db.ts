@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import Database from "better-sqlite3";
 import { config } from "./config.js";
+import { costOf } from "./pricing.js";
 
 const dataDir = path.resolve(process.cwd(), config.dataDir);
 fs.mkdirSync(dataDir, { recursive: true });
@@ -32,7 +33,8 @@ db.exec(`
     input_tokens  INTEGER,
     output_tokens INTEGER,
     cache_creation_input_tokens INTEGER,
-    cache_read_input_tokens     INTEGER
+    cache_read_input_tokens     INTEGER,
+    cost_usd                    REAL
   );
 
   CREATE INDEX IF NOT EXISTS idx_messages_chat    ON messages(chat_id);
@@ -52,6 +54,48 @@ function addColumnIfMissing(table: string, column: string, declaration: string) 
 
 addColumnIfMissing("messages", "cache_creation_input_tokens", "INTEGER");
 addColumnIfMissing("messages", "cache_read_input_tokens", "INTEGER");
+addColumnIfMissing("messages", "cost_usd", "REAL");
+
+/**
+ * Cost is frozen at generation time, so editing pricing.json never rewrites
+ * history. Replies that predate the column get priced once, here. Rows whose
+ * model has no price stay NULL and are retried on a later start — that is the
+ * only way they can ever get a cost, and they never had a stored one to lose.
+ */
+function backfillMissingCosts() {
+  const rows = db
+    .prepare(
+      `SELECT id, model, input_tokens, output_tokens,
+              cache_creation_input_tokens, cache_read_input_tokens
+         FROM messages
+        WHERE role = 'assistant' AND cost_usd IS NULL AND model IS NOT NULL`,
+    )
+    .all() as {
+    id: string;
+    model: string;
+    input_tokens: number | null;
+    output_tokens: number | null;
+    cache_creation_input_tokens: number | null;
+    cache_read_input_tokens: number | null;
+  }[];
+
+  if (rows.length === 0) return;
+
+  const update = db.prepare("UPDATE messages SET cost_usd = ? WHERE id = ?");
+  db.transaction(() => {
+    for (const row of rows) {
+      const cost = costOf(row.model, {
+        input: row.input_tokens ?? 0,
+        output: row.output_tokens ?? 0,
+        cacheWrite: row.cache_creation_input_tokens ?? 0,
+        cacheRead: row.cache_read_input_tokens ?? 0,
+      });
+      if (cost !== null) update.run(cost, row.id);
+    }
+  })();
+}
+
+backfillMissingCosts();
 
 export interface Chat {
   id: string;
@@ -73,4 +117,6 @@ export interface Message {
   output_tokens: number | null;
   cache_creation_input_tokens: number | null;
   cache_read_input_tokens: number | null;
+  /** Dollars, priced when the reply was generated. Never recomputed. */
+  cost_usd: number | null;
 }

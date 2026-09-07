@@ -1,6 +1,7 @@
 /**
- * A deliberately small markdown subset for literary prose: *italic*, **bold**
- * and `>` blockquotes. Parsing is separate from rendering so it can be tested,
+ * A deliberately small markdown subset for literary prose: *italic*, **bold**,
+ * `>` blockquotes, `#`..`###` headings and `---` rules. Parsing is separate
+ * from rendering so it can be tested,
  * and the renderer builds React elements rather than HTML — nothing a model
  * writes can turn into markup.
  */
@@ -12,7 +13,9 @@ export type Inline =
 
 export type Block =
   | { type: "paragraph"; children: Inline[] }
-  | { type: "quote"; children: Inline[] };
+  | { type: "quote"; children: Inline[] }
+  | { type: "heading"; level: 1 | 2 | 3; children: Inline[] }
+  | { type: "rule" };
 
 // Order matters: ** is tried before * at the same position. Underscore
 // delimiters must sit on a word boundary so snake_case survives untouched.
@@ -58,11 +61,14 @@ export function parseInline(text: string): Inline[] {
 }
 
 const QUOTE_LINE = /^\s*>\s?(.*)$/;
+const HEADING_LINE = /^(#{1,3})\s+(.*\S)\s*$/;
+const RULE_LINE = /^\s*-{3,}\s*$/;
 
 /**
  * Splits text into blocks. A blank line ends a block; runs of `>` lines
- * collapse into one quote. Single newlines stay inside a block — the renderer
- * keeps them via `white-space: pre-wrap`.
+ * collapse into one quote. Headings and rules are single-line blocks and end
+ * whatever came before them, so they need no blank line around them. Single
+ * newlines stay inside a block — the renderer keeps them via `pre-wrap`.
  */
 export function parseMarkdown(text: string): Block[] {
   const blocks: Block[] = [];
@@ -81,6 +87,23 @@ export function parseMarkdown(text: string): Block[] {
   for (const line of text.split("\n")) {
     if (line.trim() === "") {
       flush();
+      continue;
+    }
+
+    if (RULE_LINE.test(line)) {
+      flush();
+      blocks.push({ type: "rule" });
+      continue;
+    }
+
+    const heading = HEADING_LINE.exec(line);
+    if (heading) {
+      flush();
+      blocks.push({
+        type: "heading",
+        level: heading[1].length as 1 | 2 | 3,
+        children: parseInline(heading[2]),
+      });
       continue;
     }
 

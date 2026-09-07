@@ -18,8 +18,8 @@ export interface Message {
   output_tokens: number | null;
   cache_creation_input_tokens: number | null;
   cache_read_input_tokens: number | null;
-  /** Dollars for this reply; null when pricing.json has no entry. */
-  cost: number | null;
+  /** Dollars, frozen when the reply was generated; null if the model had no price. */
+  cost_usd: number | null;
 }
 
 export interface UsageBucket {

@@ -87,16 +87,20 @@ export function appendMessage(input: {
     output_tokens: input.usage?.output ?? null,
     cache_creation_input_tokens: input.usage?.cacheWrite ?? null,
     cache_read_input_tokens: input.usage?.cacheRead ?? null,
+    // Priced now, stored forever: later pricing.json edits must not move it.
+    cost_usd: input.usage ? costOf(input.model ?? null, input.usage) : null,
   };
 
   db.transaction(() => {
     db.prepare(
       `INSERT INTO messages
          (id, chat_id, parent_id, role, content, created_at, model,
-          input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens)
+          input_tokens, output_tokens, cache_creation_input_tokens,
+          cache_read_input_tokens, cost_usd)
        VALUES
          (@id, @chat_id, @parent_id, @role, @content, @created_at, @model,
-          @input_tokens, @output_tokens, @cache_creation_input_tokens, @cache_read_input_tokens)`,
+          @input_tokens, @output_tokens, @cache_creation_input_tokens,
+          @cache_read_input_tokens, @cost_usd)`,
     ).run(message);
     db.prepare(
       "UPDATE chats SET active_leaf_id = ?, updated_at = ? WHERE id = ?",
@@ -106,31 +110,10 @@ export function appendMessage(input: {
   return message;
 }
 
-export interface MessageWithCost extends Message {
-  /** Dollars for this reply, or null when the model has no price entry. */
-  cost: number | null;
-}
-
-export function withCost(message: Message): MessageWithCost {
-  return {
-    ...message,
-    cost: costOf(message.model, tokensOf(message)),
-  };
-}
-
-function tokensOf(message: Message): TokenCounts {
-  return {
-    input: message.input_tokens ?? 0,
-    output: message.output_tokens ?? 0,
-    cacheWrite: message.cache_creation_input_tokens ?? 0,
-    cacheRead: message.cache_read_input_tokens ?? 0,
-  };
-}
-
 export interface UsageBucket extends TokenCounts {
   replies: number;
   cost: number;
-  /** Models seen in this period that pricing.json has no entry for. */
+  /** Models with replies that carry no stored cost (no price when generated). */
   unpricedModels: string[];
 }
 
@@ -140,10 +123,15 @@ interface UsageRow {
   output: number | null;
   cacheWrite: number | null;
   cacheRead: number | null;
+  cost: number | null;
+  unpriced: number;
   replies: number;
 }
 
-/** Sums assistant replies since `since`, costing each model at its own price. */
+/**
+ * Sums assistant replies since `since` from the costs frozen at generation
+ * time — the totals never move when pricing.json is edited.
+ */
 export function usageSince(since: number): UsageBucket {
   const rows = db
     .prepare(
@@ -152,6 +140,8 @@ export function usageSince(since: number): UsageBucket {
               SUM(output_tokens)               AS output,
               SUM(cache_creation_input_tokens) AS cacheWrite,
               SUM(cache_read_input_tokens)     AS cacheRead,
+              SUM(cost_usd)                    AS cost,
+              SUM(CASE WHEN cost_usd IS NULL THEN 1 ELSE 0 END) AS unpriced,
               COUNT(*)                         AS replies
          FROM messages
         WHERE role = 'assistant' AND created_at >= ?
@@ -170,24 +160,13 @@ export function usageSince(since: number): UsageBucket {
   };
 
   for (const row of rows) {
-    const tokens: TokenCounts = {
-      input: row.input ?? 0,
-      output: row.output ?? 0,
-      cacheWrite: row.cacheWrite ?? 0,
-      cacheRead: row.cacheRead ?? 0,
-    };
-    bucket.input += tokens.input;
-    bucket.output += tokens.output;
-    bucket.cacheWrite += tokens.cacheWrite;
-    bucket.cacheRead += tokens.cacheRead;
+    bucket.input += row.input ?? 0;
+    bucket.output += row.output ?? 0;
+    bucket.cacheWrite += row.cacheWrite ?? 0;
+    bucket.cacheRead += row.cacheRead ?? 0;
     bucket.replies += row.replies;
-
-    const cost = costOf(row.model, tokens);
-    if (cost === null) {
-      if (row.model) bucket.unpricedModels.push(row.model);
-    } else {
-      bucket.cost += cost;
-    }
+    bucket.cost += row.cost ?? 0;
+    if (row.unpriced > 0 && row.model) bucket.unpricedModels.push(row.model);
   }
 
   return bucket;

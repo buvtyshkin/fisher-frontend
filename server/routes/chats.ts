@@ -9,7 +9,6 @@ import {
   renameChat,
   startOfToday,
   usageSince,
-  withCost,
 } from "../store.js";
 import { anthropicAdapter } from "../provider.js";
 
@@ -43,7 +42,7 @@ export async function chatRoutes(app: FastifyInstance) {
     "/api/chats/:id/messages",
     async (req, reply) => {
       if (!getChat(req.params.id)) return reply.code(404).send({ error: "not found" });
-      return getBranch(req.params.id).map(withCost);
+      return getBranch(req.params.id);
     },
   );
 
@@ -87,7 +86,7 @@ export async function chatRoutes(app: FastifyInstance) {
       const send = (event: string, data: unknown) => {
         reply.raw.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
       };
-      send("user", withCost(userMessage));
+      send("user", userMessage);
 
       // Abort the upstream request if the browser goes away mid-generation.
       // Watch the response, not the request: req.raw fires "close" as soon as
@@ -121,7 +120,7 @@ export async function chatRoutes(app: FastifyInstance) {
           model: result.model,
           usage: result.tokens,
         });
-        send("done", withCost(assistantMessage));
+        send("done", assistantMessage);
       } catch (error) {
         // Keep whatever was generated before the failure so nothing is lost.
         if (answer) {

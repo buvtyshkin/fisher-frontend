@@ -76,3 +76,32 @@ test("empty text yields no blocks", () => {
   assert.deepEqual(parseMarkdown(""), []);
   assert.deepEqual(parseMarkdown("\n\n  \n"), []);
 });
+
+test("headings and rules are their own blocks without blank lines around them", () => {
+  const blocks = parseMarkdown("текст\n# Глава\n## Сцена\n### Мелко\n---\nдальше");
+  assert.deepEqual(
+    blocks.map((b) => b.type),
+    ["paragraph", "heading", "heading", "heading", "rule", "paragraph"],
+  );
+  assert.deepEqual(
+    blocks.filter((b) => b.type === "heading").map((b) => b.level),
+    [1, 2, 3],
+  );
+});
+
+test("heading text is parsed for markup, four hashes are not a heading", () => {
+  const [heading] = parseMarkdown("# *Глава* первая");
+  assert.deepEqual(heading.children, [
+    { type: "italic", children: [text("Глава")] },
+    text(" первая"),
+  ]);
+  assert.deepEqual(parseMarkdown("#### слишком глубоко")[0].type, "paragraph");
+  assert.deepEqual(parseMarkdown("#безпробела")[0].type, "paragraph");
+});
+
+test("a rule needs at least three dashes on its own line", () => {
+  assert.deepEqual(parseMarkdown("---")[0], { type: "rule" });
+  assert.deepEqual(parseMarkdown("-----")[0], { type: "rule" });
+  assert.equal(parseMarkdown("-- не линия")[0].type, "paragraph");
+  assert.equal(parseMarkdown("текст --- внутри")[0].type, "paragraph");
+});

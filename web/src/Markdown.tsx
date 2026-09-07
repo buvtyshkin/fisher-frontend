@@ -1,4 +1,4 @@
-import { Fragment, type ReactNode } from "react";
+import { Fragment, createElement, type ReactNode } from "react";
 import { parseMarkdown, type Inline } from "./markdown.ts";
 
 function renderInline(nodes: Inline[]): ReactNode {
@@ -12,13 +12,22 @@ function renderInline(nodes: Inline[]): ReactNode {
 export function Markdown({ text }: { text: string }) {
   return (
     <div className="markdown">
-      {parseMarkdown(text).map((block, index) =>
-        block.type === "quote" ? (
-          <blockquote key={index}>{renderInline(block.children)}</blockquote>
-        ) : (
-          <p key={index}>{renderInline(block.children)}</p>
-        ),
-      )}
+      {parseMarkdown(text).map((block, index) => {
+        switch (block.type) {
+          case "rule":
+            return <hr key={index} />;
+          case "heading":
+            return createElement(
+              `h${block.level}`,
+              { key: index },
+              renderInline(block.children),
+            );
+          case "quote":
+            return <blockquote key={index}>{renderInline(block.children)}</blockquote>;
+          default:
+            return <p key={index}>{renderInline(block.children)}</p>;
+        }
+      })}
     </div>
   );
 }

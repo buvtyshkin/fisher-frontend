@@ -7,13 +7,18 @@
     "node": ">=24"
   },
   "scripts": {
+    "check-node": "node scripts/check-node.mjs",
+    "predev": "npm run check-node --silent",
     "dev": "concurrently -n server,web -c cyan,magenta \"npm:dev:server\" \"npm:dev:web\"",
     "dev:server": "tsx watch server/index.ts",
     "dev:web": "vite",
+    "prebuild": "npm run check-node --silent",
     "build": "npm run build:server && npm run build:web",
     "build:server": "tsc -p tsconfig.server.json",
     "build:web": "vite build",
+    "prestart": "npm run check-node --silent",
     "start": "node dist/server/index.js",
+    "pretest": "npm run check-node --silent",
     "test": "node --import tsx --test test/*.test.ts"
   },
   "dependencies": {
