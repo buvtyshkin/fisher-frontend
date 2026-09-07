@@ -69,6 +69,11 @@ button:disabled { opacity: .4; cursor: default; }
   padding: 10px 16px; border-bottom: 1px solid var(--border);
 }
 .topbar .title { color: var(--text-dim); font-size: 15px; flex: 1; }
+.topbar .leaves {
+  font-family: ui-monospace, monospace; font-size: 12px;
+  color: var(--text-dim); border: 1px solid var(--border);
+  border-radius: 5px; padding: 2px 7px;
+}
 .usage-button { font-size: 13px; }
 .burger { display: none; }
 
@@ -170,3 +175,37 @@ button:disabled { opacity: .4; cursor: default; }
 .period dt { color: var(--text-dim); }
 .warn { margin: 8px 0 0; font-size: 12px; color: var(--danger); }
 .hint.small { margin-top: 18px; font-size: 12px; line-height: 1.5; }
+
+/* Per-message tree controls */
+.controls {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+  margin-top: 10px; opacity: .35; transition: opacity .12s;
+}
+.message:hover .controls, .controls:focus-within { opacity: 1; }
+.controls button { padding: 3px 9px; font-size: 12px; }
+.swiper {
+  display: inline-flex; align-items: center; gap: 2px; margin-right: 4px;
+}
+.swiper button { padding: 3px 8px; line-height: 1; }
+.swiper .counter {
+  font-family: ui-monospace, monospace; font-size: 12px;
+  color: var(--accent); min-width: 34px; text-align: center;
+}
+
+/* Inline message editor */
+.editor textarea {
+  width: 100%; resize: vertical;
+  background: var(--bg); color: var(--text);
+  border: 1px solid var(--accent); border-radius: 8px;
+  padding: 10px 12px; font: inherit; font-size: 15px;
+}
+.editor textarea:focus { outline: none; }
+.editor-actions {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px;
+}
+.editor-actions .hint.small { margin: 0; }
+
+@media (max-width: 720px) {
+  /* No hover on a phone — keep the controls readable at all times. */
+  .controls { opacity: 1; }
+}

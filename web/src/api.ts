@@ -20,6 +20,15 @@ export interface Message {
   cache_read_input_tokens: number | null;
   /** Dollars, frozen when the reply was generated; null if the model had no price. */
   cost_usd: number | null;
+  /** Every alternative at this point — swipes, edits and branches alike. */
+  sibling_ids: string[];
+  sibling_index: number;
+}
+
+export interface Branch {
+  messages: Message[];
+  /** How many branch tips the whole chat has. */
+  leaves: number;
 }
 
 export interface UsageBucket {
@@ -54,31 +63,45 @@ export const api = {
   renameChat: (id: string, title: string) =>
     json<Chat>(`/api/chats/${id}`, { method: "PATCH", body: JSON.stringify({ title }) }),
   deleteChat: (id: string) => json<void>(`/api/chats/${id}`, { method: "DELETE" }),
-  listMessages: (id: string) => json<Message[]>(`/api/chats/${id}/messages`),
+  listMessages: (id: string) => json<Branch>(`/api/chats/${id}/messages`),
   usage: () => json<UsageReport>("/api/usage"),
+
+  /** Moves the view to another branch (or forks, with descend: false). */
+  setLeaf: (chatId: string, messageId: string, descend = true) =>
+    json<Branch>(`/api/chats/${chatId}/leaf`, {
+      method: "POST",
+      body: JSON.stringify({ messageId, descend }),
+    }),
+
+  editMessage: (messageId: string, content: string) =>
+    json<Branch>(`/api/messages/${messageId}/edit`, {
+      method: "POST",
+      body: JSON.stringify({ content }),
+    }),
 };
 
 export interface StreamHandlers {
-  onUser: (message: Message) => void;
+  /** Only a new turn emits this — swipes and continues have no user message. */
+  onUser?: (message: Message) => void;
   onDelta: (chunk: string) => void;
   onDone: (message: Message) => void;
   onError: (text: string) => void;
 }
 
 /**
- * Sends a message and consumes the SSE reply. EventSource can't do POST, so we
- * read the response body ourselves and split on the blank-line frame separator.
+ * Consumes an SSE generation. EventSource can't do POST, so we read the
+ * response body ourselves and split on the blank-line frame separator.
  */
-export async function sendMessage(
-  chatId: string,
-  content: string,
+async function stream(
+  url: string,
+  body: unknown,
   handlers: StreamHandlers,
   signal?: AbortSignal,
 ): Promise<void> {
-  const response = await fetch(`/api/chats/${chatId}/messages`, {
+  const response = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ content }),
+    body: JSON.stringify(body),
     signal,
   });
 
@@ -106,10 +129,32 @@ export async function sendMessage(
       if (!eventLine || dataLine === undefined) continue;
       const payload = JSON.parse(dataLine);
 
-      if (eventLine === "user") handlers.onUser(payload as Message);
+      if (eventLine === "user") handlers.onUser?.(payload as Message);
       else if (eventLine === "delta") handlers.onDelta(payload as string);
       else if (eventLine === "done") handlers.onDone(payload as Message);
       else if (eventLine === "error") handlers.onError(payload.message);
     }
   }
 }
+
+/** A new turn: appends the user message, then streams the reply. */
+export const sendMessage = (
+  chatId: string,
+  content: string,
+  handlers: StreamHandlers,
+  signal?: AbortSignal,
+) => stream(`/api/chats/${chatId}/messages`, { content }, handlers, signal);
+
+/** A swipe: another reply alongside this one. */
+export const swipeMessage = (
+  messageId: string,
+  handlers: StreamHandlers,
+  signal?: AbortSignal,
+) => stream(`/api/messages/${messageId}/swipe`, {}, handlers, signal);
+
+/** Continues a reply that stopped mid-sentence, in place. */
+export const continueMessage = (
+  messageId: string,
+  handlers: StreamHandlers,
+  signal?: AbortSignal,
+) => stream(`/api/messages/${messageId}/continue`, {}, handlers, signal);

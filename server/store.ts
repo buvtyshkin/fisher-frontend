@@ -42,29 +42,105 @@ export function renameChat(id: string, title: string): void {
   );
 }
 
-/**
- * The active branch: walk up from the chat's active leaf to the root via
- * parent_id, then reverse. Phase 0 never forks, so this is just the chat,
- * but the traversal is the real one and phase 1 inherits it unchanged.
- */
-export function getBranch(chatId: string): Message[] {
-  const chat = getChat(chatId);
-  if (!chat?.active_leaf_id) return [];
+export function getMessage(id: string): Message | undefined {
+  return db.prepare("SELECT * FROM messages WHERE id = ?").get(id) as
+    | Message
+    | undefined;
+}
 
-  const byId = db.prepare("SELECT * FROM messages WHERE id = ?");
-  const branch: Message[] = [];
+/**
+ * Root-to-node path: walk up via parent_id, then reverse. The `seen` guard
+ * means a corrupted cycle truncates the path instead of hanging the server.
+ */
+export function pathTo(messageId: string | null): Message[] {
+  const path: Message[] = [];
   const seen = new Set<string>();
-  let cursor: string | null = chat.active_leaf_id;
+  let cursor = messageId;
 
   while (cursor && !seen.has(cursor)) {
     seen.add(cursor);
-    const node = byId.get(cursor) as Message | undefined;
+    const node = getMessage(cursor);
     if (!node) break;
-    branch.push(node);
+    path.push(node);
     cursor = node.parent_id;
   }
 
-  return branch.reverse();
+  return path.reverse();
+}
+
+/** The branch currently in view: the path to the chat's active leaf. */
+export function getBranch(chatId: string): Message[] {
+  return pathTo(getChat(chatId)?.active_leaf_id ?? null);
+}
+
+/**
+ * Alternative children of the same parent, oldest first. Swipes, edits and
+ * branches are all just siblings, so one query serves all three.
+ */
+export function getSiblings(message: Message): Message[] {
+  return db
+    .prepare(
+      `SELECT * FROM messages
+        WHERE chat_id = ? AND parent_id IS ?
+        ORDER BY created_at, id`,
+    )
+    .all(message.chat_id, message.parent_id) as Message[];
+}
+
+/** Follows the most recent child down to a leaf — the last path taken here. */
+export function deepestLeaf(messageId: string): string {
+  const newestChild = db.prepare(
+    "SELECT id FROM messages WHERE parent_id = ? ORDER BY created_at DESC, id DESC LIMIT 1",
+  );
+  const seen = new Set<string>();
+  let cursor = messageId;
+
+  while (!seen.has(cursor)) {
+    seen.add(cursor);
+    const child = newestChild.get(cursor) as { id: string } | undefined;
+    if (!child) break;
+    cursor = child.id;
+  }
+
+  return cursor;
+}
+
+export function setActiveLeaf(chatId: string, messageId: string): void {
+  db.prepare("UPDATE chats SET active_leaf_id = ?, updated_at = ? WHERE id = ?").run(
+    messageId,
+    Date.now(),
+    chatId,
+  );
+}
+
+/** How many branch tips the chat has — messages with no children. */
+export function countLeaves(chatId: string): number {
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) AS leaves FROM messages m
+        WHERE m.chat_id = ?
+          AND NOT EXISTS (SELECT 1 FROM messages c WHERE c.parent_id = m.id)`,
+    )
+    .get(chatId) as { leaves: number };
+  return row.leaves;
+}
+
+export interface BranchMessage extends Message {
+  /** Ids of every alternative at this point, oldest first, including this one. */
+  sibling_ids: string[];
+  sibling_index: number;
+}
+
+/** The active branch, each message tagged with its position among siblings. */
+export function getBranchWithSiblings(chatId: string): BranchMessage[] {
+  return getBranch(chatId).map((message) => {
+    const siblingIds = getSiblings(message).map((s) => s.id);
+    return {
+      ...message,
+      sibling_ids: siblingIds,
+      sibling_index: siblingIds.indexOf(message.id),
+    };
+  });
 }
 
 export function appendMessage(input: {
@@ -108,6 +184,64 @@ export function appendMessage(input: {
   })();
 
   return message;
+}
+
+/**
+ * Editing never overwrites: the new text becomes another child of the same
+ * parent, so the original stays in the tree and both are reachable.
+ */
+export function editMessage(id: string, content: string): Message | undefined {
+  const original = getMessage(id);
+  if (!original) return undefined;
+  return appendMessage({
+    chatId: original.chat_id,
+    parentId: original.parent_id,
+    role: original.role,
+    content,
+  });
+}
+
+/**
+ * Appends continued text to an existing reply and adds the new usage to what
+ * the message already cost — a continue is the same reply, billed twice.
+ */
+export function appendToMessage(
+  id: string,
+  text: string,
+  model: string | null,
+  usage: TokenCounts | null,
+): Message | undefined {
+  const message = getMessage(id);
+  if (!message) return undefined;
+
+  const extraCost = usage ? costOf(model ?? message.model, usage) : null;
+
+  db.prepare(
+    `UPDATE messages
+        SET content = content || ?,
+            model = COALESCE(?, model),
+            input_tokens  = COALESCE(input_tokens, 0)  + ?,
+            output_tokens = COALESCE(output_tokens, 0) + ?,
+            cache_creation_input_tokens = COALESCE(cache_creation_input_tokens, 0) + ?,
+            cache_read_input_tokens     = COALESCE(cache_read_input_tokens, 0) + ?,
+            cost_usd = CASE
+              WHEN ? IS NULL THEN cost_usd
+              ELSE COALESCE(cost_usd, 0) + ?
+            END
+      WHERE id = ?`,
+  ).run(
+    text,
+    model,
+    usage?.input ?? 0,
+    usage?.output ?? 0,
+    usage?.cacheWrite ?? 0,
+    usage?.cacheRead ?? 0,
+    extraCost,
+    extraCost,
+    id,
+  );
+
+  return getMessage(id);
 }
 
 export interface UsageBucket extends TokenCounts {
