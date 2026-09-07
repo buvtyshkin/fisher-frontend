@@ -294,6 +294,9 @@ export function appendToMessage(
 export interface UsageBucket extends TokenCounts {
   replies: number;
   cost: number;
+  /** Keep-alive requests included in the totals above. */
+  refreshes: number;
+  refreshCost: number;
   /** Models with replies that carry no stored cost (no price when generated). */
   unpricedModels: string[];
 }
@@ -337,6 +340,8 @@ export function usageSince(since: number): UsageBucket {
     cacheRead: 0,
     replies: 0,
     cost: 0,
+    refreshes: 0,
+    refreshCost: 0,
     unpricedModels: [],
   };
 
@@ -350,7 +355,64 @@ export function usageSince(since: number): UsageBucket {
     if (row.unpriced > 0 && row.model) bucket.unpricedModels.push(row.model);
   }
 
+  const refresh = db
+    .prepare(
+      `SELECT COUNT(*) AS n,
+              SUM(input_tokens)                AS input,
+              SUM(cache_creation_input_tokens) AS cacheWrite,
+              SUM(cache_read_input_tokens)     AS cacheRead,
+              SUM(cost_usd)                    AS cost
+         FROM cache_refreshes
+        WHERE created_at >= ?`,
+    )
+    .get(since) as {
+    n: number;
+    input: number | null;
+    cacheWrite: number | null;
+    cacheRead: number | null;
+    cost: number | null;
+  };
+
+  bucket.refreshes = refresh.n;
+  bucket.refreshCost = refresh.cost ?? 0;
+  bucket.input += refresh.input ?? 0;
+  bucket.cacheWrite += refresh.cacheWrite ?? 0;
+  bucket.cacheRead += refresh.cacheRead ?? 0;
+  bucket.cost += refresh.cost ?? 0;
+
   return bucket;
+}
+
+/** Records what a keep-alive cost, so the totals stay honest. */
+export function recordCacheRefresh(input: {
+  chatId: string;
+  model: string;
+  usage: TokenCounts;
+}): void {
+  db.prepare(
+    `INSERT INTO cache_refreshes
+       (id, chat_id, created_at, model, input_tokens,
+        cache_creation_input_tokens, cache_read_input_tokens, cost_usd)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    randomUUID(),
+    input.chatId,
+    Date.now(),
+    input.model,
+    input.usage.input,
+    input.usage.cacheWrite,
+    input.usage.cacheRead,
+    costOf(input.model, input.usage),
+  );
+}
+
+/** Chats worth keeping warm: most recently touched first. */
+export function recentChats(limit: number, since: number): Chat[] {
+  return db
+    .prepare(
+      "SELECT * FROM chats WHERE updated_at >= ? ORDER BY updated_at DESC LIMIT ?",
+    )
+    .all(since, limit) as Chat[];
 }
 
 export function startOfToday(now = new Date()): number {

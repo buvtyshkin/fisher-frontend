@@ -6,6 +6,7 @@ import fastifyMultipart from "@fastify/multipart";
 import { config } from "./config.js";
 import { chatRoutes } from "./routes/chats.js";
 import { libraryRoutes } from "./routes/library.js";
+import { startCacheRefresher } from "./cache-refresher.js";
 
 const app = Fastify({ logger: { level: "info" } });
 
@@ -31,3 +32,5 @@ if (fs.existsSync(webRoot)) {
 }
 
 await app.listen({ port: config.port, host: config.host });
+
+startCacheRefresher(app.log);

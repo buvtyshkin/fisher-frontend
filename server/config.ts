@@ -23,7 +23,17 @@ export const config = {
   cache: {
     depth: Number(process.env.CACHE_DEPTH ?? 2),
     system: process.env.CACHE_SYSTEM !== "false",
-    ttl: (process.env.CACHE_TTL === "1h" ? "1h" : "5m") as "5m" | "1h",
+    ttl: (process.env.CACHE_TTL === "5m" ? "5m" : "1h") as "5m" | "1h",
+  },
+  // Keeps the cache warm while nobody is typing. A cache read resets the TTL
+  // for free, so the refresh costs one read of the prefix and no output.
+  cacheRefresh: {
+    enabled: process.env.CACHE_REFRESH !== "false",
+    everyMinutes: Number(process.env.CACHE_REFRESH_MINUTES ?? 50),
+    /** How many of the most recently used chats to keep warm. */
+    chats: Number(process.env.CACHE_REFRESH_CHATS ?? 1),
+    /** A chat untouched for longer than this stops being refreshed. */
+    idleHours: Number(process.env.CACHE_REFRESH_IDLE_HOURS ?? 12),
   },
   // SillyTavern's global World Info settings; its own defaults.
   worldInfo: {

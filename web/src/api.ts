@@ -124,6 +124,8 @@ export interface UsageBucket {
   cacheRead: number;
   replies: number;
   cost: number;
+  refreshes: number;
+  refreshCost: number;
   unpricedModels: string[];
 }
 

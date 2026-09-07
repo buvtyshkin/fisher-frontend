@@ -27,6 +27,9 @@ export interface ProviderAdapter {
     request: GenerateRequest,
     onText: (chunk: string) => void,
   ): Promise<GenerateResult>;
+
+  /** Reads the cached prefix to reset its TTL, generating nothing. */
+  warmCache(request: GenerateRequest): Promise<GenerateResult>;
 }
 
 const client = new Anthropic({ apiKey: config.apiKey });
@@ -57,14 +60,56 @@ export const anthropicAdapter: ProviderAdapter = {
     }
 
     const final = await stream.finalMessage();
-    return {
-      model: final.model,
-      tokens: {
-        input: final.usage.input_tokens,
-        output: final.usage.output_tokens,
-        cacheWrite: final.usage.cache_creation_input_tokens ?? 0,
-        cacheRead: final.usage.cache_read_input_tokens ?? 0,
-      },
-    };
+    return { model: final.model, tokens: usageOf(final) };
+  },
+
+  /**
+   * `max_tokens: 0` runs prefill and returns immediately: no output tokens are
+   * billed, and reading the cached prefix resets its TTL at no extra cost. The
+   * request must otherwise be byte-identical to the real one — changing the
+   * thinking configuration alone would invalidate the messages cache — and it
+   * cannot be streamed, which the API rejects together with max_tokens: 0.
+   */
+  async warmCache(request) {
+    const send = (maxTokens: number) =>
+      client.messages.create(
+        {
+          model: config.model,
+          max_tokens: maxTokens,
+          // Identical to the real request: a different thinking configuration
+          // would invalidate the very messages cache we are keeping alive.
+          ...(config.thinking === "off"
+            ? { thinking: { type: "disabled" as const } }
+            : {}),
+          ...(request.system ? { system: request.system } : {}),
+          messages: request.messages,
+        },
+        { signal: request.signal },
+      );
+
+    try {
+      const response = await send(0);
+      return { model: response.model, tokens: usageOf(response) };
+    } catch (error) {
+      // max_tokens: 0 is rejected in some combinations; one token costs
+      // practically nothing and keeps the keep-alive working either way.
+      const rejected =
+        error instanceof Anthropic.APIError &&
+        error.status === 400 &&
+        String(error.message).includes("max_tokens");
+      if (!rejected) throw error;
+
+      const response = await send(1);
+      return { model: response.model, tokens: usageOf(response) };
+    }
   },
 };
+
+function usageOf(message: Anthropic.Message) {
+  return {
+    input: message.usage.input_tokens,
+    output: message.usage.output_tokens,
+    cacheWrite: message.usage.cache_creation_input_tokens ?? 0,
+    cacheRead: message.usage.cache_read_input_tokens ?? 0,
+  };
+}

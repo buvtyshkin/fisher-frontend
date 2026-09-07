@@ -18,6 +18,14 @@ function Period({ label, bucket }: { label: string; bucket: UsageBucket }) {
         <div><dt>Запись в кэш</dt><dd>{number(bucket.cacheWrite)}</dd></div>
         <div><dt>Чтение из кэша</dt><dd>{number(bucket.cacheRead)}</dd></div>
         <div><dt>Ответов</dt><dd>{number(bucket.replies)}</dd></div>
+        {bucket.refreshes > 0 && (
+          <div>
+            <dt>из них прогрев кэша</dt>
+            <dd>
+              {number(bucket.refreshes)} · {money(bucket.refreshCost)}
+            </dd>
+          </div>
+        )}
       </dl>
       {bucket.unpricedModels.length > 0 && (
         <p className="warn">
@@ -52,7 +60,7 @@ export function Usage({ onClose }: { onClose: () => void }) {
             <Period label="Последние 7 дней" bucket={report.last7d} />
             <p className="hint small">
               Токены мышления входят в «выход» и тарифицируются как выход.
-              Цены — в файле pricing.json.
+              Прогрев кэша учтён в суммах выше. Цены — в файле pricing.json.
             </p>
           </>
         )}

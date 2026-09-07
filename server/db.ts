@@ -75,6 +75,19 @@ db.exec(`
     PRIMARY KEY (chat_id, lorebook_id)
   );
 
+  -- Keep-alive requests cost money too; they must show up in the totals.
+  CREATE TABLE IF NOT EXISTS cache_refreshes (
+    id                          TEXT PRIMARY KEY,
+    chat_id                     TEXT NOT NULL,
+    created_at                  INTEGER NOT NULL,
+    model                       TEXT,
+    input_tokens                INTEGER,
+    cache_creation_input_tokens INTEGER,
+    cache_read_input_tokens     INTEGER,
+    cost_usd                    REAL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_refresh_created ON cache_refreshes(created_at);
   CREATE INDEX IF NOT EXISTS idx_messages_chat    ON messages(chat_id);
   CREATE INDEX IF NOT EXISTS idx_messages_parent  ON messages(parent_id);
   CREATE INDEX IF NOT EXISTS idx_messages_created ON messages(created_at);

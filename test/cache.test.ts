@@ -169,3 +169,36 @@ test("the cached prefix is byte-identical after two more turns", () => {
   );
   assert.ok(Math.max(...secondPlan.breakpoints) > shared, "точка сдвигается вперёд");
 });
+
+/* ── Keep-alive accounting ───────────────────────────────────────────────── */
+
+test("a keep-alive is recorded and folded into the totals", async () => {
+  const fs = await import("node:fs");
+  const os = await import("node:os");
+  const path = await import("node:path");
+
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "fisher-warm-"));
+  process.env.DATA_DIR = tmp;
+  process.env.ANTHROPIC_API_KEY = "test-key";
+
+  const { recordCacheRefresh, startOfToday, usageSince } = await import(
+    "../server/store.ts"
+  );
+
+  const before = usageSince(startOfToday());
+  recordCacheRefresh({
+    chatId: "c",
+    model: "claude-opus-5",
+    // A pure cache read: 1M tokens at $0.50 per million.
+    usage: { input: 0, output: 0, cacheWrite: 0, cacheRead: 1_000_000 },
+  });
+
+  const after = usageSince(startOfToday());
+  assert.equal(after.refreshes, before.refreshes + 1);
+  assert.ok(Math.abs(after.refreshCost - (before.refreshCost + 0.5)) < 1e-9);
+  assert.ok(
+    Math.abs(after.cost - (before.cost + 0.5)) < 1e-9,
+    "прогрев должен входить в общую сумму, а не теряться",
+  );
+  assert.equal(after.cacheRead, before.cacheRead + 1_000_000);
+});
