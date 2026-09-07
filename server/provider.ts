@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { config } from "./config.js";
+import type { TokenCounts } from "./pricing.js";
 
 export interface GenerateRequest {
   system?: string;
@@ -7,10 +8,10 @@ export interface GenerateRequest {
   signal?: AbortSignal;
 }
 
-export interface GenerateUsage {
+export interface GenerateResult {
   model: string;
-  inputTokens: number;
-  outputTokens: number;
+  /** Thinking tokens are already counted inside `output` by the API. */
+  tokens: TokenCounts;
 }
 
 /**
@@ -23,7 +24,7 @@ export interface ProviderAdapter {
   streamReply(
     request: GenerateRequest,
     onText: (chunk: string) => void,
-  ): Promise<GenerateUsage>;
+  ): Promise<GenerateResult>;
 }
 
 const client = new Anthropic({ apiKey: config.apiKey });
@@ -56,8 +57,12 @@ export const anthropicAdapter: ProviderAdapter = {
     const final = await stream.finalMessage();
     return {
       model: final.model,
-      inputTokens: final.usage.input_tokens,
-      outputTokens: final.usage.output_tokens,
+      tokens: {
+        input: final.usage.input_tokens,
+        output: final.usage.output_tokens,
+        cacheWrite: final.usage.cache_creation_input_tokens ?? 0,
+        cacheRead: final.usage.cache_read_input_tokens ?? 0,
+      },
     };
   },
 };

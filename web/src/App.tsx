@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, sendMessage, type Chat, type Message } from "./api.ts";
+import { Markdown } from "./Markdown.tsx";
+import { Usage } from "./Usage.tsx";
 
 export function App() {
   const [chats, setChats] = useState<Chat[]>([]);
@@ -10,6 +12,7 @@ export function App() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [usageOpen, setUsageOpen] = useState(false);
 
   const abortRef = useRef<AbortController | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -140,23 +143,22 @@ export function App() {
         <header className="topbar">
           <button className="burger" onClick={() => setSidebarOpen((v) => !v)}>☰</button>
           <span className="title">{activeChat?.title ?? "Fisher"}</span>
+          <button className="usage-button" onClick={() => setUsageOpen(true)}>
+            Расходы
+          </button>
         </header>
 
         <div className="messages">
           {!activeId && <p className="hint">Создайте чат слева, чтобы начать.</p>}
           {messages.map((message) => (
             <article key={message.id} className={`message ${message.role}`}>
-              <div className="text">{message.content}</div>
-              {message.output_tokens !== null && (
-                <div className="meta">
-                  {message.model} · вход {message.input_tokens} · выход {message.output_tokens}
-                </div>
-              )}
+              <Markdown text={message.content} />
+              {message.output_tokens !== null && <Meta message={message} />}
             </article>
           ))}
           {streaming && (
             <article className="message assistant">
-              <div className="text">{streaming}</div>
+              <Markdown text={streaming} />
             </article>
           )}
           {busy && !streaming && <p className="hint">Claude думает…</p>}
@@ -180,6 +182,30 @@ export function App() {
           )}
         </footer>
       </main>
+
+      {usageOpen && <Usage onClose={() => setUsageOpen(false)} />}
+    </div>
+  );
+}
+
+/** Token and cost line under an assistant reply. */
+function Meta({ message }: { message: Message }) {
+  const cost =
+    message.cost === null
+      ? "цена не задана"
+      : message.cost >= 0.01
+        ? `$${message.cost.toFixed(2)}`
+        : `$${message.cost.toFixed(4)}`;
+
+  return (
+    <div className="meta">
+      {message.model} · вход {message.input_tokens} · выход {message.output_tokens}
+      {" · кэш-запись "}
+      {message.cache_creation_input_tokens ?? 0}
+      {" · кэш-чтение "}
+      {message.cache_read_input_tokens ?? 0}
+      {" · "}
+      <span className="cost">{cost}</span>
     </div>
   );
 }

@@ -16,6 +16,26 @@ export interface Message {
   model: string | null;
   input_tokens: number | null;
   output_tokens: number | null;
+  cache_creation_input_tokens: number | null;
+  cache_read_input_tokens: number | null;
+  /** Dollars for this reply; null when pricing.json has no entry. */
+  cost: number | null;
+}
+
+export interface UsageBucket {
+  input: number;
+  output: number;
+  cacheWrite: number;
+  cacheRead: number;
+  replies: number;
+  cost: number;
+  unpricedModels: string[];
+}
+
+export interface UsageReport {
+  today: UsageBucket;
+  last24h: UsageBucket;
+  last7d: UsageBucket;
 }
 
 async function json<T>(url: string, init?: RequestInit): Promise<T> {
@@ -35,6 +55,7 @@ export const api = {
     json<Chat>(`/api/chats/${id}`, { method: "PATCH", body: JSON.stringify({ title }) }),
   deleteChat: (id: string) => json<void>(`/api/chats/${id}`, { method: "DELETE" }),
   listMessages: (id: string) => json<Message[]>(`/api/chats/${id}/messages`),
+  usage: () => json<UsageReport>("/api/usage"),
 };
 
 export interface StreamHandlers {

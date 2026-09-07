@@ -30,12 +30,28 @@ db.exec(`
     created_at    INTEGER NOT NULL,
     model         TEXT,
     input_tokens  INTEGER,
-    output_tokens INTEGER
+    output_tokens INTEGER,
+    cache_creation_input_tokens INTEGER,
+    cache_read_input_tokens     INTEGER
   );
 
-  CREATE INDEX IF NOT EXISTS idx_messages_chat   ON messages(chat_id);
-  CREATE INDEX IF NOT EXISTS idx_messages_parent ON messages(parent_id);
+  CREATE INDEX IF NOT EXISTS idx_messages_chat    ON messages(chat_id);
+  CREATE INDEX IF NOT EXISTS idx_messages_parent  ON messages(parent_id);
+  CREATE INDEX IF NOT EXISTS idx_messages_created ON messages(created_at);
 `);
+
+/** Adds a column to an existing database that predates it. */
+function addColumnIfMissing(table: string, column: string, declaration: string) {
+  const columns = db.prepare(`PRAGMA table_info(${table})`).all() as {
+    name: string;
+  }[];
+  if (!columns.some((c) => c.name === column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${declaration}`);
+  }
+}
+
+addColumnIfMissing("messages", "cache_creation_input_tokens", "INTEGER");
+addColumnIfMissing("messages", "cache_read_input_tokens", "INTEGER");
 
 export interface Chat {
   id: string;
@@ -55,4 +71,6 @@ export interface Message {
   model: string | null;
   input_tokens: number | null;
   output_tokens: number | null;
+  cache_creation_input_tokens: number | null;
+  cache_read_input_tokens: number | null;
 }

@@ -7,6 +7,9 @@ import {
   getChat,
   listChats,
   renameChat,
+  startOfToday,
+  usageSince,
+  withCost,
 } from "../store.js";
 import { anthropicAdapter } from "../provider.js";
 
@@ -40,9 +43,18 @@ export async function chatRoutes(app: FastifyInstance) {
     "/api/chats/:id/messages",
     async (req, reply) => {
       if (!getChat(req.params.id)) return reply.code(404).send({ error: "not found" });
-      return getBranch(req.params.id);
+      return getBranch(req.params.id).map(withCost);
     },
   );
+
+  app.get("/api/usage", async () => {
+    const now = Date.now();
+    return {
+      today: usageSince(startOfToday()),
+      last24h: usageSince(now - 24 * 60 * 60 * 1000),
+      last7d: usageSince(now - 7 * 24 * 60 * 60 * 1000),
+    };
+  });
 
   /**
    * Appends the user message, streams Claude's reply back over SSE, and stores
@@ -75,7 +87,7 @@ export async function chatRoutes(app: FastifyInstance) {
       const send = (event: string, data: unknown) => {
         reply.raw.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
       };
-      send("user", userMessage);
+      send("user", withCost(userMessage));
 
       // Abort the upstream request if the browser goes away mid-generation.
       // Watch the response, not the request: req.raw fires "close" as soon as
@@ -87,7 +99,7 @@ export async function chatRoutes(app: FastifyInstance) {
 
       let answer = "";
       try {
-        const usage = await anthropicAdapter.streamReply(
+        const result = await anthropicAdapter.streamReply(
           {
             messages: [...branch, userMessage].map((m) => ({
               role: m.role === "assistant" ? "assistant" : "user",
@@ -106,11 +118,10 @@ export async function chatRoutes(app: FastifyInstance) {
           parentId: userMessage.id,
           role: "assistant",
           content: answer,
-          model: usage.model,
-          inputTokens: usage.inputTokens,
-          outputTokens: usage.outputTokens,
+          model: result.model,
+          usage: result.tokens,
         });
-        send("done", assistantMessage);
+        send("done", withCost(assistantMessage));
       } catch (error) {
         // Keep whatever was generated before the failure so nothing is lost.
         if (answer) {
