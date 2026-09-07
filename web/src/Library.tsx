@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { api, upload, type Character, type Chat, type Persona } from "./api.ts";
+import { CardEditor } from "./CardEditor.tsx";
 
 interface LibraryProps {
   chat: Chat;
@@ -16,6 +17,7 @@ export function Library({ chat, onClose, onBound }: LibraryProps) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState<Persona | null>(null);
+  const [editingCard, setEditingCard] = useState<Character | null>(null);
   const [personaName, setPersonaName] = useState("");
   const [personaText, setPersonaText] = useState("");
 
@@ -137,6 +139,9 @@ export function Library({ chat, onClose, onBound }: LibraryProps) {
                   >
                     {character.id === characterId ? "Выбран" : "Выбрать"}
                   </button>
+                  <button disabled={busy} onClick={() => setEditingCard(character)}>
+                    ✎
+                  </button>
                   <a
                     className="button"
                     href={`/api/characters/${character.id}/export`}
@@ -230,6 +235,18 @@ export function Library({ chat, onClose, onBound }: LibraryProps) {
           )}
         </section>
       </div>
+
+      {editingCard && (
+        <CardEditor
+          character={editingCard}
+          onClose={() => setEditingCard(null)}
+          onSaved={() => {
+            void refresh();
+            // A renamed or re-greeted card changes what the chat shows.
+            onBound();
+          }}
+        />
+      )}
     </div>
   );
 }

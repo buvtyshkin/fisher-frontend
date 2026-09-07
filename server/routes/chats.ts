@@ -22,6 +22,7 @@ import {
   setActiveLeaf,
   seedGreetings,
   startOfToday,
+  tipChildren,
   usageSince,
 } from "../store.js";
 import { applyNameMacros, greetingsOf, type CardData } from "../cards/card.js";
@@ -31,6 +32,15 @@ import { anthropicAdapter } from "../provider.js";
 
 interface IdParams {
   id: string;
+}
+
+/** Everything the UI needs to draw a branch and every way out of it. */
+function branchResponse(chatId: string) {
+  return {
+    messages: getBranchWithSiblings(chatId),
+    leaves: countLeaves(chatId),
+    tip_children: tipChildren(chatId),
+  };
 }
 
 /** Asks the model to resume a reply that was cut off. */
@@ -179,10 +189,7 @@ export async function chatRoutes(app: FastifyInstance) {
 
   app.get<{ Params: IdParams }>("/api/chats/:id/messages", async (req, reply) => {
     if (!getChat(req.params.id)) return reply.code(404).send({ error: "not found" });
-    return {
-      messages: getBranchWithSiblings(req.params.id),
-      leaves: countLeaves(req.params.id),
-    };
+    return branchResponse(req.params.id);
   });
 
   /**
@@ -217,11 +224,7 @@ export async function chatRoutes(app: FastifyInstance) {
       );
     }
 
-    return {
-      chat: updated,
-      messages: getBranchWithSiblings(chat.id),
-      leaves: countLeaves(chat.id),
-    };
+    return { chat: updated, ...branchResponse(chat.id) };
   });
 
   app.get("/api/usage", async () => {
@@ -247,7 +250,7 @@ export async function chatRoutes(app: FastifyInstance) {
 
       // Switching branches follows that branch to its tip; forking stops here.
       setActiveLeaf(chat.id, req.body.descend === false ? target.id : deepestLeaf(target.id));
-      return { messages: getBranchWithSiblings(chat.id), leaves: countLeaves(chat.id) };
+      return branchResponse(chat.id);
     },
   );
 
@@ -262,10 +265,7 @@ export async function chatRoutes(app: FastifyInstance) {
       if (!content) return reply.code(400).send({ error: "empty message" });
 
       editMessage(original.id, content);
-      return {
-        messages: getBranchWithSiblings(original.chat_id),
-        leaves: countLeaves(original.chat_id),
-      };
+      return branchResponse(original.chat_id);
     },
   );
 

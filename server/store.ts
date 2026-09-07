@@ -142,6 +142,33 @@ export function countLeaves(chatId: string): number {
   return row.leaves;
 }
 
+export interface TipChild {
+  id: string;
+  role: Message["role"];
+  preview: string;
+}
+
+/**
+ * Continuations that already exist past the end of the branch in view. After
+ * forking, the abandoned line lives here — without surfacing it there is no
+ * message on screen carrying the sibling switcher, and the old branch becomes
+ * unreachable from the UI even though it is intact in the database.
+ */
+export function tipChildren(chatId: string): TipChild[] {
+  const tip = getBranch(chatId).at(-1);
+  if (!tip) return [];
+
+  const children = db
+    .prepare("SELECT id, role, content FROM messages WHERE parent_id = ? ORDER BY rowid")
+    .all(tip.id) as { id: string; role: Message["role"]; content: string }[];
+
+  return children.map((child) => ({
+    id: child.id,
+    role: child.role,
+    preview: child.content.replace(/\s+/g, " ").trim().slice(0, 70),
+  }));
+}
+
 export interface BranchMessage extends Message {
   /** Ids of every alternative at this point, oldest first, including this one. */
   sibling_ids: string[];
@@ -362,6 +389,19 @@ export function saveCharacter(input: {
      VALUES (@id, @name, @spec, @data, @avatar, @created_at)`,
   ).run(row);
   return row;
+}
+
+export function updateCharacter(
+  id: string,
+  input: { name: string; data: string },
+): CharacterRow | undefined {
+  if (!getCharacter(id)) return undefined;
+  db.prepare("UPDATE characters SET name = ?, data = ? WHERE id = ?").run(
+    input.name,
+    input.data,
+    id,
+  );
+  return getCharacter(id);
 }
 
 export function deleteCharacter(id: string): void {

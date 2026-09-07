@@ -24,7 +24,12 @@ export function App() {
   const [chats, setChats] = useState<Chat[]>([]);
   const [characters, setCharacters] = useState<Character[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
-  const [branch, setBranch] = useState<Branch>({ messages: [], leaves: 0 });
+  const [branch, setBranch] = useState<Branch>({
+    messages: [],
+    leaves: 0,
+    tip_children: [],
+  });
+  const [justForked, setJustForked] = useState(false);
   const [draft, setDraft] = useState("");
   const [streaming, setStreaming] = useState("");
   const [generation, setGeneration] = useState<Generation>({ kind: "idle" });
@@ -60,8 +65,9 @@ export function App() {
 
   useEffect(() => {
     setEditingId(null);
+    setJustForked(false);
     if (!activeId) {
-      setBranch({ messages: [], leaves: 0 });
+      setBranch({ messages: [], leaves: 0, tip_children: [] });
       return;
     }
     reload(activeId).catch((e) => setError(String(e)));
@@ -131,6 +137,7 @@ export function App() {
     const content = draft.trim();
     if (!content || !activeId || busy) return;
     setDraft("");
+    setJustForked(false);
     await generate({ kind: "turn" }, (handlers, signal) =>
       sendMessage(activeId, content, handlers, signal),
     );
@@ -148,6 +155,7 @@ export function App() {
 
   async function switchSibling(message: Message, direction: -1 | 1) {
     if (!activeId || busy) return;
+    setJustForked(false);
     const next = message.sibling_ids[message.sibling_index + direction];
     if (!next) return;
     // Switching follows the chosen branch down to its own tip.
@@ -157,6 +165,14 @@ export function App() {
   async function fork(message: Message) {
     if (!activeId || busy) return;
     setBranch(await api.setLeaf(activeId, message.id, false));
+    setJustForked(true);
+  }
+
+  /** Jumps into an existing continuation, following it to its own tip. */
+  async function goToChild(childId: string) {
+    if (!activeId || busy) return;
+    setBranch(await api.setLeaf(activeId, childId));
+    setJustForked(false);
   }
 
   async function saveEdit(message: Message) {
@@ -297,6 +313,31 @@ export function App() {
             );
           })}
 
+          {!busy && branch.tip_children.length > 0 && (
+            <div className="fork-point">
+              <p className="fork-title">
+                {justForked
+                  ? "Вы вернулись сюда. Прежнее продолжение сохранено — оно ниже."
+                  : "Отсюда история уже продолжалась."}
+              </p>
+              <ul>
+                {branch.tip_children.map((child) => (
+                  <li key={child.id}>
+                    <button onClick={() => void goToChild(child.id)}>
+                      <span className="who">
+                        {child.role === "assistant" ? "модель" : "вы"}
+                      </span>
+                      {child.preview || "(пусто)"}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              <p className="fork-hint">
+                Напишите свой ход, чтобы повести историю иначе — появится ещё одна ветка.
+              </p>
+            </div>
+          )}
+
           {streaming && generation.kind !== "continue" && (
             <article className="message assistant">
               <Markdown text={streaming} />
@@ -411,8 +452,12 @@ function Controls(props: ControlsProps) {
         </button>
       )}
       {!isLast && (
-        <button disabled={busy} title="Продолжить историю отсюда" onClick={props.onFork}>
-          Ветвиться
+        <button
+          disabled={busy}
+          title="Вернуться к этому месту и повести историю иначе. Прежнее продолжение сохранится."
+          onClick={props.onFork}
+        >
+          Переиграть отсюда
         </button>
       )}
     </div>

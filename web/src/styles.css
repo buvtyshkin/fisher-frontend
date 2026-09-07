@@ -261,3 +261,35 @@ a.button:hover { border-color: var(--accent); color: var(--accent); }
 @media (max-width: 720px) {
   .portrait { width: 34px; height: 34px; margin-right: 10px; }
 }
+
+/* Fork point: continuations that exist past the end of this branch */
+.fork-point {
+  max-width: 780px; margin: 0 auto 18px; padding: 12px 16px;
+  border: 1px dashed var(--border); border-radius: 10px; background: #191c22;
+}
+.fork-title { margin: 0 0 8px; font-size: 14px; color: var(--text); }
+.fork-point ul { list-style: none; margin: 0; padding: 0; }
+.fork-point li { margin-bottom: 6px; }
+.fork-point li button {
+  display: flex; align-items: baseline; gap: 8px; width: 100%;
+  text-align: left; font-size: 13px; padding: 7px 10px; line-height: 1.4;
+}
+.fork-point .who {
+  flex: 0 0 auto; font-family: ui-monospace, monospace;
+  font-size: 11px; color: var(--text-dim);
+}
+.fork-hint { margin: 10px 0 0; font-size: 12px; color: var(--text-dim); }
+
+/* Card editor */
+.card-form { display: flex; flex-direction: column; gap: 12px; margin-top: 12px; }
+.card-form label { display: flex; flex-direction: column; gap: 4px; }
+.card-form label > span { font-size: 12px; color: var(--text-dim); }
+.card-form input, .card-form textarea {
+  background: var(--bg); color: var(--text);
+  border: 1px solid var(--border); border-radius: 6px;
+  padding: 8px 10px; font: inherit; font-size: 14px; resize: vertical;
+}
+.card-form input:focus, .card-form textarea:focus {
+  outline: none; border-color: var(--accent);
+}
+.card-form .hint.small { margin: 0; }

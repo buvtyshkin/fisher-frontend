@@ -23,6 +23,7 @@ const {
   getSiblings,
   pathTo,
   setActiveLeaf,
+  tipChildren,
 } = await import("../server/store.ts");
 
 const say = (
@@ -190,4 +191,46 @@ test("leaf count tracks how many branch tips the chat has", () => {
   assert.equal(countLeaves(chat.id), 2);
   say(chat.id, q2.id, "assistant", "ответ 2");
   assert.equal(countLeaves(chat.id), 2, "extending a tip does not add one");
+});
+
+test("forking surfaces the abandoned continuation at the branch tip", () => {
+  const { chat, a1, q2 } = conversation("Точка развилки");
+  say(chat.id, q2.id, "assistant", "ответ 2");
+
+  // Nothing on the branch has siblings yet, so without this the old line
+  // would be unreachable from the UI even though it is intact in the tree.
+  assert.deepEqual(tipChildren(chat.id), []);
+
+  setActiveLeaf(chat.id, a1.id);
+  const children = tipChildren(chat.id);
+  assert.equal(children.length, 1);
+  assert.equal(children[0].id, q2.id);
+  assert.equal(children[0].role, "user");
+  assert.equal(children[0].preview, "вопрос 2");
+});
+
+test("the tip lists every continuation, in the order they were made", () => {
+  const { chat, a1, q2 } = conversation("Несколько продолжений");
+  const other = say(chat.id, a1.id, "user", "а если иначе?");
+  setActiveLeaf(chat.id, a1.id);
+
+  assert.deepEqual(
+    tipChildren(chat.id).map((c) => c.id),
+    [q2.id, other.id],
+  );
+});
+
+test("a long preview is trimmed and stripped of line breaks", () => {
+  const chat = createChat("Превью");
+  const root = say(chat.id, null, "user", "начало");
+  say(chat.id, root.id, "assistant", `строка\nвторая ${"о".repeat(200)}`);
+  setActiveLeaf(chat.id, root.id);
+
+  const [child] = tipChildren(chat.id);
+  assert.equal(child.preview.length, 70);
+  assert.doesNotMatch(child.preview, /\n/);
+});
+
+test("an empty chat has no tip children", () => {
+  assert.deepEqual(tipChildren(createChat("Пусто").id), []);
 });

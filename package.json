@@ -19,7 +19,8 @@
     "prestart": "npm run check-node --silent",
     "start": "node dist/server/index.js",
     "pretest": "npm run check-node --silent",
-    "test": "node --import tsx --test test/*.test.ts"
+    "test": "node --import tsx --test test/*.test.ts",
+    "tree": "node --import tsx scripts/tree.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.68.0",

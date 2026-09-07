@@ -15,6 +15,28 @@ export interface Character {
   created_at: number;
 }
 
+/** The card's own `data` object — Character Card V2/V3 field names. */
+export interface CardData {
+  name: string;
+  description: string;
+  personality: string;
+  scenario: string;
+  first_mes: string;
+  mes_example: string;
+  alternate_greetings?: string[];
+  system_prompt?: string;
+  post_history_instructions?: string;
+  creator_notes?: string;
+  creator?: string;
+  character_version?: string;
+  tags?: string[];
+  [key: string]: unknown;
+}
+
+export interface CharacterFull extends Character {
+  data: CardData;
+}
+
 export interface Persona {
   id: string;
   name: string;
@@ -41,10 +63,18 @@ export interface Message {
   sibling_index: number;
 }
 
+export interface TipChild {
+  id: string;
+  role: "user" | "assistant" | "system";
+  preview: string;
+}
+
 export interface Branch {
   messages: Message[];
   /** How many branch tips the whole chat has. */
   leaves: number;
+  /** Continuations that already exist past the end of this branch. */
+  tip_children: TipChild[];
 }
 
 export interface UsageBucket {
@@ -96,6 +126,12 @@ export const api = {
     }),
 
   listCharacters: () => json<Character[]>("/api/characters"),
+  getCharacter: (id: string) => json<CharacterFull>(`/api/characters/${id}`),
+  updateCharacter: (id: string, patch: Partial<CardData>) =>
+    json<CharacterFull>(`/api/characters/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    }),
   deleteCharacter: (id: string) =>
     json<void>(`/api/characters/${id}`, { method: "DELETE" }),
 

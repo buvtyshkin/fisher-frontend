@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
-import { extractCardJson } from "../cards/png.js";
+import { extractCardJson, writeCardIntoPng } from "../cards/png.js";
 import { parseCard, toExportJson, type CardData } from "../cards/card.js";
 import {
   deleteCharacter,
@@ -10,6 +10,7 @@ import {
   listPersonas,
   savePersona,
   saveCharacter,
+  updateCharacter,
   updatePersona,
 } from "../store.js";
 
@@ -84,6 +85,60 @@ export async function libraryRoutes(app: FastifyInstance) {
     }
   });
 
+  /**
+   * Edits card fields. Only known text fields are writable — everything else
+   * the card arrived with is carried through untouched.
+   */
+  app.patch<{ Params: IdParams; Body: Record<string, unknown> }>(
+    "/api/characters/:id",
+    async (req, reply) => {
+      const character = getCharacter(req.params.id);
+      if (!character) return reply.code(404).send({ error: "not found" });
+
+      const data = JSON.parse(character.data) as CardData;
+      const body = req.body ?? {};
+
+      const textFields = [
+        "name",
+        "description",
+        "personality",
+        "scenario",
+        "first_mes",
+        "mes_example",
+        "system_prompt",
+        "post_history_instructions",
+        "creator_notes",
+        "creator",
+        "character_version",
+      ] as const;
+
+      for (const field of textFields) {
+        if (typeof body[field] === "string") data[field] = body[field] as string;
+      }
+      for (const field of ["alternate_greetings", "tags"] as const) {
+        if (Array.isArray(body[field])) {
+          data[field] = (body[field] as unknown[]).filter(
+            (v): v is string => typeof v === "string",
+          );
+        }
+      }
+
+      if (!data.name.trim()) return reply.code(400).send({ error: "нужно имя" });
+
+      const saved = updateCharacter(character.id, {
+        name: data.name,
+        data: JSON.stringify(data),
+      })!;
+      return {
+        id: saved.id,
+        name: saved.name,
+        spec: saved.spec,
+        created_at: saved.created_at,
+        data,
+      };
+    },
+  );
+
   app.delete<{ Params: IdParams }>("/api/characters/:id", async (req, reply) => {
     deleteCharacter(req.params.id);
     return reply.code(204).send();
@@ -103,22 +158,26 @@ export async function libraryRoutes(app: FastifyInstance) {
       const character = getCharacter(req.params.id);
       if (!character) return reply.code(404).send({ error: "not found" });
 
+      const data = JSON.parse(character.data) as CardData;
+
       if (req.query.format !== "json" && character.avatar) {
+        // Re-embed the current card so edits actually leave with the file.
+        const keyword = character.spec === "chara_card_v3" ? "ccv3" : "chara";
+        const png = writeCardIntoPng(
+          character.avatar,
+          keyword,
+          toExportJson({ spec: character.spec as "chara_card_v2", data }),
+        );
         return reply
           .header("Content-Type", "image/png")
           .header("Content-Disposition", contentDisposition(character.name, "png"))
-          .send(character.avatar);
+          .send(png);
       }
 
       return reply
         .header("Content-Type", "application/json; charset=utf-8")
         .header("Content-Disposition", contentDisposition(character.name, "json"))
-        .send(
-          toExportJson({
-            spec: character.spec as "chara_card_v2",
-            data: JSON.parse(character.data) as CardData,
-          }),
-        );
+        .send(toExportJson({ spec: character.spec as "chara_card_v2", data }));
     },
   );
 
