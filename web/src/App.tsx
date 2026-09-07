@@ -9,6 +9,8 @@ import {
   type Character,
   type Chat,
   type Message,
+  type PluginAction,
+  upload,
 } from "./api.ts";
 import { Chronicles } from "./Chronicles.tsx";
 import { Library } from "./Library.tsx";
@@ -43,9 +45,12 @@ export function App() {
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [promptOpen, setPromptOpen] = useState(false);
   const [chroniclesOpen, setChroniclesOpen] = useState(false);
+  const [plugins, setPlugins] = useState<PluginAction[]>([]);
+  const [pluginResult, setPluginResult] = useState<{ title: string; text: string } | null>(null);
 
   const abortRef = useRef<AbortController | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const importRef = useRef<HTMLInputElement>(null);
 
   const busy = generation.kind !== "idle";
   const messages = branch.messages;
@@ -65,6 +70,7 @@ export function App() {
 
   useEffect(() => {
     refreshChats().catch((e) => setError(String(e)));
+    api.listPlugins().then(setPlugins).catch(() => {});
   }, [refreshChats]);
 
   useEffect(() => {
@@ -85,6 +91,24 @@ export function App() {
     await refreshChats();
     setActiveId(chat.id);
     setSidebarOpen(false);
+  }
+
+  /** Imports a SillyTavern chat file; swipes arrive as branches. */
+  async function importChat(file: File) {
+    setError(null);
+    try {
+      await upload("/api/chats/import", file);
+      await refreshChats();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      if (importRef.current) importRef.current.value = "";
+    }
+  }
+
+  async function toggleHidden(message: Message) {
+    if (!activeId || busy) return;
+    setBranch(await api.setHidden(message.id, message.hidden_from_prompt !== 1));
   }
 
   async function removeChat(id: string) {
@@ -229,7 +253,25 @@ export function App() {
       <aside className={sidebarOpen ? "sidebar open" : "sidebar"}>
         <div className="sidebar-head">
           <span className="brand">Fisher</span>
-          <button onClick={newChat}>+ Чат</button>
+          <span className="row-actions">
+            <button onClick={newChat}>+ Чат</button>
+            <button
+              title="Импорт чата из SillyTavern (.jsonl)"
+              onClick={() => importRef.current?.click()}
+            >
+              Импорт
+            </button>
+          </span>
+          <input
+            ref={importRef}
+            type="file"
+            accept=".jsonl"
+            hidden
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) void importChat(file);
+            }}
+          />
         </div>
         <ul className="chat-list">
           {chats.map((chat) => (
@@ -290,6 +332,23 @@ export function App() {
           >
             Промпт
           </button>
+          {plugins.map((plugin) => (
+            <button
+              key={plugin.name}
+              className="usage-button"
+              disabled={!activeId}
+              onClick={async () => {
+                if (!activeId) return;
+                try {
+                  setPluginResult(await api.runPlugin(plugin.name, activeId));
+                } catch (e) {
+                  setError(String(e));
+                }
+              }}
+            >
+              {plugin.label}
+            </button>
+          ))}
           <button className="usage-button" onClick={() => setUsageOpen(true)}>
             Расходы
           </button>
@@ -304,7 +363,14 @@ export function App() {
               generation.kind === "continue" && generation.messageId === message.id;
 
             return (
-              <article key={message.id} className={`message ${message.role}`}>
+              <article
+                key={message.id}
+                className={
+                  message.hidden_from_prompt === 1
+                    ? `message ${message.role} hidden-from-prompt`
+                    : `message ${message.role}`
+                }
+              >
                 {message.role === "assistant" && character && (
                   <img
                     className="portrait"
@@ -347,6 +413,7 @@ export function App() {
                     }}
                     onSwipe={() => void swipe(message)}
                     onContinue={() => void continueReply(message)}
+                    onToggleHidden={() => void toggleHidden(message)}
                   />
                 )}
               </article>
@@ -414,6 +481,17 @@ export function App() {
         </footer>
       </main>
 
+      {pluginResult && (
+        <div className="overlay" onClick={() => setPluginResult(null)}>
+          <div className="panel" onClick={(e) => e.stopPropagation()}>
+            <header>
+              <h2>{pluginResult.title}</h2>
+              <button onClick={() => setPluginResult(null)}>Закрыть</button>
+            </header>
+            <pre className="dump">{pluginResult.text}</pre>
+          </div>
+        </div>
+      )}
       {usageOpen && <Usage onClose={() => setUsageOpen(false)} />}
       {promptOpen && activeId && (
         <PromptDebug chatId={activeId} onClose={() => setPromptOpen(false)} />
@@ -470,6 +548,7 @@ interface ControlsProps {
   onEdit: () => void;
   onSwipe: () => void;
   onContinue: () => void;
+  onToggleHidden: () => void;
 }
 
 function Controls(props: ControlsProps) {
@@ -515,6 +594,17 @@ function Controls(props: ControlsProps) {
           Свайп
         </button>
       )}
+      <button
+        disabled={busy}
+        title={
+          message.hidden_from_prompt === 1
+            ? "Сейчас не уходит в запрос — вернуть"
+            : "Оставить в чате, но не отправлять в запрос"
+        }
+        onClick={props.onToggleHidden}
+      >
+        {message.hidden_from_prompt === 1 ? "Вернуть в промпт" : "Скрыть из промпта"}
+      </button>
       {message.role === "assistant" && isLast && (
         <button disabled={busy} title="Дописать оборванный ответ" onClick={props.onContinue}>
           Продолжить

@@ -120,6 +120,13 @@ export interface Message {
   /** Every alternative at this point — swipes, edits and branches alike. */
   sibling_ids: string[];
   sibling_index: number;
+  /** 1 — остаётся в дереве и на экране, но не уходит в API. */
+  hidden_from_prompt: number;
+}
+
+export interface PluginAction {
+  name: string;
+  label: string;
 }
 
 export interface TipChild {
@@ -200,6 +207,19 @@ export const api = {
   deletePreset: (id: string) =>
     json<void>(`/api/presets/${id}`, { method: "DELETE" }),
   prompt: (chatId: string) => json<PromptDump>(`/api/chats/${chatId}/prompt`),
+
+  setHidden: (messageId: string, hidden: boolean) =>
+    json<Branch>(`/api/messages/${messageId}/hidden`, {
+      method: "POST",
+      body: JSON.stringify({ hidden }),
+    }),
+
+  listPlugins: () => json<PluginAction[]>("/api/plugins"),
+  runPlugin: (name: string, chatId: string) =>
+    json<{ title: string; text: string }>(`/api/plugins/${name}/run`, {
+      method: "POST",
+      body: JSON.stringify({ chatId }),
+    }),
 
   listChronicles: (chatId: string) =>
     json<Chronicle[]>(`/api/chats/${chatId}/chronicles`),

@@ -34,7 +34,8 @@ db.exec(`
     output_tokens INTEGER,
     cache_creation_input_tokens INTEGER,
     cache_read_input_tokens     INTEGER,
-    cost_usd                    REAL
+    cost_usd                    REAL,
+    hidden_from_prompt          INTEGER NOT NULL DEFAULT 0
   );
 
   CREATE TABLE IF NOT EXISTS characters (
@@ -130,6 +131,8 @@ function addColumnIfMissing(table: string, column: string, declaration: string) 
 addColumnIfMissing("messages", "cache_creation_input_tokens", "INTEGER");
 addColumnIfMissing("messages", "cache_read_input_tokens", "INTEGER");
 addColumnIfMissing("messages", "cost_usd", "REAL");
+// SillyTavern's is_system means "kept in the chat, left out of the prompt".
+addColumnIfMissing("messages", "hidden_from_prompt", "INTEGER NOT NULL DEFAULT 0");
 addColumnIfMissing("chats", "character_id", "TEXT REFERENCES characters(id)");
 addColumnIfMissing("chats", "persona_id", "TEXT REFERENCES personas(id)");
 addColumnIfMissing("chats", "preset_id", "TEXT REFERENCES presets(id)");
@@ -256,4 +259,6 @@ export interface Message {
   cache_read_input_tokens: number | null;
   /** Dollars, priced when the reply was generated. Never recomputed. */
   cost_usd: number | null;
+  /** 1 — stays in the tree and on screen, never sent to the API. */
+  hidden_from_prompt: number;
 }

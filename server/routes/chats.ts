@@ -34,15 +34,24 @@ import { DEFAULT_USER_NAME } from "../preset/build.js";
 import { assemble, chatContext, flatten } from "../assemble.js";
 import type { Message } from "../db.js";
 import { anthropicAdapter } from "../provider.js";
+import {
+  runAfterResponse,
+  runBeforePromptBuild,
+  runOnMessageRender,
+} from "../plugins.js";
+import { setMessageHidden } from "../store.js";
 
 interface IdParams {
   id: string;
 }
 
 /** Everything the UI needs to draw a branch and every way out of it. */
-function branchResponse(chatId: string) {
+function branchResponse(chatId: string, app?: FastifyInstance) {
+  const branch = getBranchWithSiblings(chatId);
   return {
-    messages: getBranchWithSiblings(chatId),
+    messages: app
+      ? (runOnMessageRender(app.log, branch) as typeof branch)
+      : branch,
     leaves: countLeaves(chatId),
     tip_children: tipChildren(chatId),
   };
@@ -131,12 +140,19 @@ async function streamGeneration(
   const built = assemble(options.chatId, options.context, options.extraUser);
   for (const warning of built.warnings) app.log.warn(warning);
 
+  const prompt = await runBeforePromptBuild(app.log, {
+    chatId: options.chatId,
+    branch: options.context,
+    system: built.system,
+    messages: built.messages,
+  });
+
   let answer = "";
   try {
     const result = await anthropicAdapter.streamReply(
       {
-        system: built.system,
-        messages: built.messages,
+        system: prompt.system,
+        messages: prompt.messages,
         maxTokens: built.maxTokens,
         signal: controller.signal,
       },
@@ -145,7 +161,13 @@ async function streamGeneration(
         send("delta", chunk);
       },
     );
-    send("done", options.onComplete(answer, result.model, result.tokens));
+    const stored = options.onComplete(answer, result.model, result.tokens);
+    send("done", stored);
+    void runAfterResponse(app.log, {
+      chatId: options.chatId,
+      message: stored ?? null,
+      text: answer,
+    });
   } catch (error) {
     if (answer) options.onPartial(answer);
     app.log.error(error);
@@ -181,8 +203,19 @@ export async function chatRoutes(app: FastifyInstance) {
 
   app.get<{ Params: IdParams }>("/api/chats/:id/messages", async (req, reply) => {
     if (!getChat(req.params.id)) return reply.code(404).send({ error: "not found" });
-    return branchResponse(req.params.id);
+    return branchResponse(req.params.id, app);
   });
+
+  /** Keeps a message in the tree but takes it out of the request, or back in. */
+  app.post<{ Params: IdParams; Body: { hidden: boolean } }>(
+    "/api/messages/:id/hidden",
+    async (req, reply) => {
+      const message = getMessage(req.params.id);
+      if (!message) return reply.code(404).send({ error: "not found" });
+      setMessageHidden(message.id, req.body?.hidden === true);
+      return branchResponse(message.chat_id, app);
+    },
+  );
 
   /**
    * Binds a character and/or persona. Binding a card to a still-empty chat

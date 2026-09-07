@@ -364,3 +364,12 @@ a.button:hover { border-color: var(--accent); color: var(--accent); }
 }
 .card-form label.checkbox input { width: auto; margin-top: 3px; }
 .card-form label.checkbox > span { font-size: 12px; line-height: 1.5; }
+
+/* A message kept in the chat but left out of the request */
+.message.hidden-from-prompt { opacity: .5; border-style: dashed; }
+.message.hidden-from-prompt::before {
+  content: "не уходит в запрос";
+  display: block; margin-bottom: 8px;
+  font-family: ui-monospace, monospace; font-size: 11px; color: var(--text-dim);
+}
+.sidebar-head .row-actions { display: flex; gap: 6px; }

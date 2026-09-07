@@ -199,6 +199,8 @@ export function appendMessage(input: {
   content: string;
   model?: string | null;
   usage?: TokenCounts | null;
+  /** Kept in the tree and on screen, never sent to the API. */
+  hidden?: boolean;
 }): Message {
   const message: Message = {
     id: randomUUID(),
@@ -214,6 +216,7 @@ export function appendMessage(input: {
     cache_read_input_tokens: input.usage?.cacheRead ?? null,
     // Priced now, stored forever: later pricing.json edits must not move it.
     cost_usd: input.usage ? costOf(input.model ?? null, input.usage) : null,
+    hidden_from_prompt: input.hidden ? 1 : 0,
   };
 
   db.transaction(() => {
@@ -221,11 +224,11 @@ export function appendMessage(input: {
       `INSERT INTO messages
          (id, chat_id, parent_id, role, content, created_at, model,
           input_tokens, output_tokens, cache_creation_input_tokens,
-          cache_read_input_tokens, cost_usd)
+          cache_read_input_tokens, cost_usd, hidden_from_prompt)
        VALUES
          (@id, @chat_id, @parent_id, @role, @content, @created_at, @model,
           @input_tokens, @output_tokens, @cache_creation_input_tokens,
-          @cache_read_input_tokens, @cost_usd)`,
+          @cache_read_input_tokens, @cost_usd, @hidden_from_prompt)`,
     ).run(message);
     db.prepare(
       "UPDATE chats SET active_leaf_id = ?, updated_at = ? WHERE id = ?",
@@ -820,7 +823,12 @@ export function chroniclesForBranch(
         position.get(a.anchor_message_id)! - position.get(b.anchor_message_id)!,
     );
 
-  const hidden = new Set<string>();
+  // Messages hidden on their own, independently of any chronicle — this is
+  // how SillyTavern's is_system arrives on import.
+  const hidden = new Set<string>(
+    branch.filter((m) => m.hidden_from_prompt === 1).map((m) => m.id),
+  );
+
   for (const chronicle of visible) {
     if (!chronicle.hide_covered) continue;
 
@@ -852,4 +860,13 @@ export function renderChronicles(chronicles: ChronicleRow[]): string {
       return `${heading}\n${chronicle.content.trim()}`;
     })
     .join("\n\n");
+}
+
+/** Toggles whether a message is sent to the API. It stays in the tree either way. */
+export function setMessageHidden(id: string, hidden: boolean): Message | undefined {
+  db.prepare("UPDATE messages SET hidden_from_prompt = ? WHERE id = ?").run(
+    hidden ? 1 : 0,
+    id,
+  );
+  return getMessage(id);
 }

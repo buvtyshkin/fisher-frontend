@@ -7,12 +7,14 @@ import { config } from "./config.js";
 import { chatRoutes } from "./routes/chats.js";
 import { libraryRoutes } from "./routes/library.js";
 import { chronicleRoutes } from "./routes/chronicles.js";
+import { loadPlugins } from "./plugins.js";
 import { startCacheRefresher } from "./cache-refresher.js";
 
 const app = Fastify({ logger: { level: "info" } });
 
 // Character cards are PNGs; a big portrait can legitimately be a few megabytes.
 await app.register(fastifyMultipart, { limits: { fileSize: 25 * 1024 * 1024 } });
+await loadPlugins(app.log);
 await app.register(chatRoutes);
 await app.register(libraryRoutes);
 await app.register(chronicleRoutes);

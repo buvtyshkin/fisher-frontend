@@ -3,6 +3,9 @@ import { extractCardJson, writeCardIntoPng } from "../cards/png.js";
 import { parseCard, toExportJson, type CardData } from "../cards/card.js";
 import { parsePreset } from "../preset/preset.js";
 import { parseLorebook } from "../lorebook/lorebook.js";
+import { importSillyTavernChat } from "../import-chat.js";
+import { loadedPlugins } from "../plugins.js";
+import { getBranch } from "../store.js";
 import {
   deleteCharacter,
   deletePersona,
@@ -220,6 +223,52 @@ export async function libraryRoutes(app: FastifyInstance) {
     deletePreset(req.params.id);
     return reply.code(204).send();
   });
+
+  /* ── Chat migration ────────────────────────────────────────────────────── */
+
+  /** Imports a SillyTavern chat (JSONL) as a tree: swipes become siblings. */
+  app.post("/api/chats/import", async (req, reply) => {
+    const upload = await req.file();
+    if (!upload) return reply.code(400).send({ error: "нет файла" });
+
+    const jsonl = (await upload.toBuffer()).toString("utf8");
+    try {
+      return reply.code(201).send(importSillyTavernChat(jsonl, upload.filename));
+    } catch (error) {
+      return reply.code(400).send({ error: (error as Error).message });
+    }
+  });
+
+  /* ── Plugins ───────────────────────────────────────────────────────────── */
+
+  app.get("/api/plugins", async () =>
+    loadedPlugins()
+      .filter((plugin) => plugin.action)
+      .map((plugin) => ({ name: plugin.name, label: plugin.action!.label })),
+  );
+
+  /** Runs a plugin's toolbar action and returns the text for its modal. */
+  app.post<{ Params: { name: string }; Body: { chatId?: string } }>(
+    "/api/plugins/:name/run",
+    async (req, reply) => {
+      const plugin = loadedPlugins().find(
+        (candidate) => candidate.name === req.params.name,
+      );
+      if (!plugin?.action) return reply.code(404).send({ error: "not found" });
+
+      const chatId = req.body?.chatId ?? "";
+      try {
+        const text = await plugin.action.run({
+          chatId,
+          branch: getBranch(chatId),
+        });
+        return { title: plugin.action.title, text };
+      } catch (error) {
+        app.log.error({ plugin: plugin.name, err: error }, "действие плагина упало");
+        return reply.code(500).send({ error: (error as Error).message });
+      }
+    },
+  );
 
   /* ── Lorebooks ─────────────────────────────────────────────────────────── */
 
