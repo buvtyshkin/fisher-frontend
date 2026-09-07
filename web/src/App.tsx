@@ -12,6 +12,7 @@ import {
 } from "./api.ts";
 import { Library } from "./Library.tsx";
 import { Markdown } from "./Markdown.tsx";
+import { PromptDebug } from "./PromptDebug.tsx";
 import { Usage } from "./Usage.tsx";
 
 /** What is currently being generated, so the right message shows the stream. */
@@ -39,6 +40,7 @@ export function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [usageOpen, setUsageOpen] = useState(false);
   const [libraryOpen, setLibraryOpen] = useState(false);
+  const [promptOpen, setPromptOpen] = useState(false);
 
   const abortRef = useRef<AbortController | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -262,6 +264,11 @@ export function App() {
               веток: {branch.leaves}
             </span>
           )}
+          {activeId && (
+            <button className="usage-button" onClick={() => setPromptOpen(true)}>
+              Промпт
+            </button>
+          )}
           <button className="usage-button" onClick={() => setUsageOpen(true)}>
             Расходы
           </button>
@@ -386,6 +393,9 @@ export function App() {
       </main>
 
       {usageOpen && <Usage onClose={() => setUsageOpen(false)} />}
+      {promptOpen && activeId && (
+        <PromptDebug chatId={activeId} onClose={() => setPromptOpen(false)} />
+      )}
       {libraryOpen && activeChat && (
         <Library
           chat={activeChat}

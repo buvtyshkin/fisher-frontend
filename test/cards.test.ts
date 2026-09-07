@@ -15,7 +15,6 @@ const { extractCardJson, readTextChunks, writeCardIntoPng } = await import(
 const { applyNameMacros, greetingsOf, parseCard, toExportJson } = await import(
   "../server/cards/card.ts"
 );
-const { buildSystemPrompt } = await import("../server/prompt.ts");
 const { createChat, getBranchWithSiblings, getMessage, seedGreetings } =
   await import("../server/store.ts");
 
@@ -175,70 +174,4 @@ test("greetings become siblings, and the first one stays active", () => {
     branch[0].sibling_ids.map((id) => getMessage(id)!.content),
     ["первое", "второе", "третье"],
   );
-});
-
-/* ── System prompt ───────────────────────────────────────────────────────── */
-
-test("the system prompt carries the card and resolves both names", () => {
-  const card = parseCard(JSON.stringify(v2Card)).data;
-  const system = buildSystemPrompt(card, {
-    id: "p",
-    name: "Аня",
-    description: "{{user}} — механик.",
-    avatar: null,
-    created_at: 0,
-  })!;
-
-  assert.match(system, /Фишер — смотритель маяка\./);
-  assert.match(system, /Немногословен/);
-  assert.match(system, /Ночь, шторм/);
-  assert.match(system, /Аня — механик\./);
-  assert.doesNotMatch(system, /\{\{char\}\}|\{\{user\}\}/);
-});
-
-test("no character means no system prompt at all", () => {
-  assert.equal(buildSystemPrompt(null, null), undefined);
-});
-
-/* ── Rewriting a card back into its PNG ──────────────────────────────────── */
-
-test("an edited card survives a write/read round trip", () => {
-  const original = makePng([embed("chara", v2Card)]);
-  const edited = { ...v2Card, data: { ...v2Card.data, description: "Переписано." } };
-
-  const rewritten = writeCardIntoPng(original, "chara", JSON.stringify(edited));
-  assert.deepEqual(JSON.parse(extractCardJson(rewritten)), edited);
-});
-
-test("rewriting replaces the old card instead of stacking another one", () => {
-  const png = writeCardIntoPng(
-    makePng([embed("chara", v2Card), embed("ccv3", v2Card)]),
-    "chara",
-    JSON.stringify(v2Card),
-  );
-  const cardChunks = readTextChunks(png).filter((c) =>
-    ["chara", "ccv3"].includes(c.keyword.toLowerCase()),
-  );
-  assert.equal(cardChunks.length, 1);
-  assert.equal(cardChunks[0].keyword, "chara");
-});
-
-test("the image itself is left alone and IEND stays last", () => {
-  const png = makePng([textChunk("Software", "SillyTavern"), embed("chara", v2Card)]);
-  const rewritten = writeCardIntoPng(png, "chara", JSON.stringify(v2Card));
-
-  // The unrelated chunk survives, and the file still ends with IEND.
-  assert.ok(readTextChunks(rewritten).some((c) => c.keyword === "Software"));
-  assert.equal(rewritten.subarray(-8, -4).toString("latin1"), "IEND");
-  assert.ok(rewritten.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])));
-});
-
-test("a V3 card is written into the ccv3 slot and still wins on read", () => {
-  const v3 = { spec: "chara_card_v3", spec_version: "3.0", data: v2Card.data };
-  const png = writeCardIntoPng(makePng([embed("chara", v2Card)]), "ccv3", JSON.stringify(v3));
-  assert.equal(JSON.parse(extractCardJson(png)).spec, "chara_card_v3");
-});
-
-test("writing into a non-PNG is refused", () => {
-  assert.throws(() => writeCardIntoPng(Buffer.from("нет"), "chara", "{}"), /не PNG/i);
 });

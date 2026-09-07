@@ -5,6 +5,7 @@ import {
   type CharacterRow,
   type Message,
   type PersonaRow,
+  type PresetRow,
 } from "./db.js";
 import { costOf, type TokenCounts } from "./pricing.js";
 
@@ -30,6 +31,7 @@ export function createChat(title: string): Chat {
     active_leaf_id: null,
     character_id: null,
     persona_id: null,
+    preset_id: null,
   };
   db.prepare(
     `INSERT INTO chats (id, title, created_at, updated_at, active_leaf_id)
@@ -476,20 +478,60 @@ export function deletePersona(id: string): void {
 
 export function bindChat(
   chatId: string,
-  input: { characterId?: string | null; personaId?: string | null },
+  input: {
+    characterId?: string | null;
+    personaId?: string | null;
+    presetId?: string | null;
+  },
 ): Chat | undefined {
   const chat = getChat(chatId);
   if (!chat) return undefined;
 
   db.prepare(
-    "UPDATE chats SET character_id = ?, persona_id = ?, updated_at = ? WHERE id = ?",
+    `UPDATE chats SET character_id = ?, persona_id = ?, preset_id = ?, updated_at = ?
+      WHERE id = ?`,
   ).run(
     input.characterId === undefined ? chat.character_id : input.characterId,
     input.personaId === undefined ? chat.persona_id : input.personaId,
+    input.presetId === undefined ? chat.preset_id : input.presetId,
     Date.now(),
     chatId,
   );
   return getChat(chatId);
+}
+
+/* ── Presets ─────────────────────────────────────────────────────────────── */
+
+export function listPresets(): Omit<PresetRow, "data">[] {
+  return db
+    .prepare("SELECT id, name, created_at FROM presets ORDER BY name")
+    .all() as Omit<PresetRow, "data">[];
+}
+
+export function getPreset(id: string): PresetRow | undefined {
+  return db.prepare("SELECT * FROM presets WHERE id = ?").get(id) as
+    | PresetRow
+    | undefined;
+}
+
+export function savePreset(input: { name: string; data: string }): PresetRow {
+  const row: PresetRow = {
+    id: randomUUID(),
+    name: input.name,
+    data: input.data,
+    created_at: Date.now(),
+  };
+  db.prepare(
+    "INSERT INTO presets (id, name, data, created_at) VALUES (@id, @name, @data, @created_at)",
+  ).run(row);
+  return row;
+}
+
+export function deletePreset(id: string): void {
+  db.transaction(() => {
+    db.prepare("UPDATE chats SET preset_id = NULL WHERE preset_id = ?").run(id);
+    db.prepare("DELETE FROM presets WHERE id = ?").run(id);
+  })();
 }
 
 export function countMessages(chatId: string): number {

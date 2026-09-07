@@ -1,13 +1,17 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { extractCardJson, writeCardIntoPng } from "../cards/png.js";
 import { parseCard, toExportJson, type CardData } from "../cards/card.js";
+import { parsePreset } from "../preset/preset.js";
 import {
   deleteCharacter,
   deletePersona,
+  deletePreset,
   getCharacter,
   getPersona,
   listCharacters,
   listPersonas,
+  listPresets,
+  savePreset,
   savePersona,
   saveCharacter,
   updateCharacter,
@@ -180,6 +184,37 @@ export async function libraryRoutes(app: FastifyInstance) {
         .send(toExportJson({ spec: character.spec as "chara_card_v2", data }));
     },
   );
+
+  /* ── Presets ───────────────────────────────────────────────────────────── */
+
+  app.get("/api/presets", async () => listPresets());
+
+  /** Imports a SillyTavern Chat Completion preset (JSON). */
+  app.post("/api/presets/import", async (req, reply) => {
+    const upload = await req.file();
+    if (!upload) return reply.code(400).send({ error: "нет файла" });
+
+    const json = (await upload.toBuffer()).toString("utf8");
+    const fallbackName = upload.filename.replace(/\.json$/i, "") || "Пресет";
+
+    try {
+      const preset = parsePreset(json, fallbackName);
+      const saved = savePreset({ name: preset.name || fallbackName, data: json });
+      return reply.code(201).send({
+        id: saved.id,
+        name: saved.name,
+        created_at: saved.created_at,
+        blocks: preset.order.filter((entry) => entry.enabled).length,
+      });
+    } catch (error) {
+      return reply.code(400).send({ error: (error as Error).message });
+    }
+  });
+
+  app.delete<{ Params: IdParams }>("/api/presets/:id", async (req, reply) => {
+    deletePreset(req.params.id);
+    return reply.code(204).send();
+  });
 
   /* ── Personas ──────────────────────────────────────────────────────────── */
 

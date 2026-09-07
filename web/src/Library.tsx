@@ -1,5 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { api, upload, type Character, type Chat, type Persona } from "./api.ts";
+import {
+  api,
+  upload,
+  type Character,
+  type Chat,
+  type Persona,
+  type Preset,
+} from "./api.ts";
 import { CardEditor } from "./CardEditor.tsx";
 
 interface LibraryProps {
@@ -12,6 +19,8 @@ interface LibraryProps {
 export function Library({ chat, onClose, onBound }: LibraryProps) {
   const [characters, setCharacters] = useState<Character[]>([]);
   const [personas, setPersonas] = useState<Persona[]>([]);
+  const [presets, setPresets] = useState<Preset[]>([]);
+  const [presetId, setPresetId] = useState(chat.preset_id);
   const [characterId, setCharacterId] = useState(chat.character_id);
   const [personaId, setPersonaId] = useState(chat.persona_id);
   const [error, setError] = useState<string | null>(null);
@@ -22,41 +31,50 @@ export function Library({ chat, onClose, onBound }: LibraryProps) {
   const [personaText, setPersonaText] = useState("");
 
   const fileRef = useRef<HTMLInputElement>(null);
+  const presetRef = useRef<HTMLInputElement>(null);
 
   async function refresh() {
-    const [nextCharacters, nextPersonas] = await Promise.all([
+    const [nextCharacters, nextPersonas, nextPresets] = await Promise.all([
       api.listCharacters(),
       api.listPersonas(),
+      api.listPresets(),
     ]);
     setCharacters(nextCharacters);
     setPersonas(nextPersonas);
+    setPresets(nextPresets);
   }
 
   useEffect(() => {
     refresh().catch((e) => setError(String(e)));
   }, []);
 
-  async function importCard(file: File) {
+  async function importFile(url: string, file: File) {
     setBusy(true);
     setError(null);
     try {
-      await upload("/api/characters/import", file);
+      await upload(url, file);
       await refresh();
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setBusy(false);
       if (fileRef.current) fileRef.current.value = "";
+      if (presetRef.current) presetRef.current.value = "";
     }
   }
 
-  async function bind(next: { characterId?: string | null; personaId?: string | null }) {
+  async function bind(next: {
+    characterId?: string | null;
+    personaId?: string | null;
+    presetId?: string | null;
+  }) {
     setBusy(true);
     setError(null);
     try {
       const result = await api.bind(chat.id, next);
       setCharacterId(result.chat.character_id);
       setPersonaId(result.chat.persona_id);
+      setPresetId(result.chat.preset_id);
       onBound();
     } catch (e) {
       setError(String(e));
@@ -113,7 +131,7 @@ export function Library({ chat, onClose, onBound }: LibraryProps) {
             hidden
             onChange={(e) => {
               const file = e.target.files?.[0];
-              if (file) void importCard(file);
+              if (file) void importFile("/api/characters/import", file);
             }}
           />
           <ul className="library">
@@ -163,6 +181,63 @@ export function Library({ chat, onClose, onBound }: LibraryProps) {
               остальные лежат рядом свайпами.
               <button className="linkish" disabled={busy} onClick={() => void bind({ characterId: null })}>
                 Отвязать
+              </button>
+            </p>
+          )}
+        </section>
+
+        <section className="period">
+          <h3>
+            Пресеты
+            <button disabled={busy} onClick={() => presetRef.current?.click()}>
+              Импорт JSON
+            </button>
+          </h3>
+          <input
+            ref={presetRef}
+            type="file"
+            accept=".json,application/json"
+            hidden
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) void importFile("/api/presets/import", file);
+            }}
+          />
+          <ul className="library">
+            {presets.map((preset) => (
+              <li key={preset.id} className={preset.id === presetId ? "row active" : "row"}>
+                <span className="row-name">{preset.name}</span>
+                <span className="row-actions">
+                  <button
+                    disabled={busy || preset.id === presetId}
+                    onClick={() => void bind({ presetId: preset.id })}
+                  >
+                    {preset.id === presetId ? "Выбран" : "Выбрать"}
+                  </button>
+                  <button
+                    disabled={busy}
+                    onClick={async () => {
+                      if (!confirm(`Удалить пресет «${preset.name}»?`)) return;
+                      await api.deletePreset(preset.id);
+                      if (presetId === preset.id) setPresetId(null);
+                      await refresh();
+                    }}
+                  >
+                    ✕
+                  </button>
+                </span>
+              </li>
+            ))}
+            {presets.length === 0 && (
+              <li className="empty">
+                Пресетов нет — используется простая сборка из полей карточки
+              </li>
+            )}
+          </ul>
+          {presetId && (
+            <p className="hint small">
+              <button className="linkish" disabled={busy} onClick={() => void bind({ presetId: null })}>
+                Отвязать пресет
               </button>
             </p>
           )}

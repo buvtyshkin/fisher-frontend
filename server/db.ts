@@ -54,6 +54,13 @@ db.exec(`
     created_at  INTEGER NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS presets (
+    id         TEXT PRIMARY KEY,
+    name       TEXT NOT NULL,
+    data       TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+  );
+
   CREATE INDEX IF NOT EXISTS idx_messages_chat    ON messages(chat_id);
   CREATE INDEX IF NOT EXISTS idx_messages_parent  ON messages(parent_id);
   CREATE INDEX IF NOT EXISTS idx_messages_created ON messages(created_at);
@@ -74,6 +81,7 @@ addColumnIfMissing("messages", "cache_read_input_tokens", "INTEGER");
 addColumnIfMissing("messages", "cost_usd", "REAL");
 addColumnIfMissing("chats", "character_id", "TEXT REFERENCES characters(id)");
 addColumnIfMissing("chats", "persona_id", "TEXT REFERENCES personas(id)");
+addColumnIfMissing("chats", "preset_id", "TEXT REFERENCES presets(id)");
 
 /**
  * Cost is frozen at generation time, so editing pricing.json never rewrites
@@ -124,6 +132,7 @@ export interface Chat {
   active_leaf_id: string | null;
   character_id: string | null;
   persona_id: string | null;
+  preset_id: string | null;
 }
 
 export interface CharacterRow {
@@ -133,6 +142,14 @@ export interface CharacterRow {
   /** The card's `data` object, as imported. */
   data: string;
   avatar: Buffer | null;
+  created_at: number;
+}
+
+export interface PresetRow {
+  id: string;
+  name: string;
+  /** The imported preset JSON, verbatim. */
+  data: string;
   created_at: number;
 }
 

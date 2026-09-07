@@ -6,6 +6,7 @@ export interface Chat {
   active_leaf_id: string | null;
   character_id: string | null;
   persona_id: string | null;
+  preset_id: string | null;
 }
 
 export interface Character {
@@ -35,6 +36,31 @@ export interface CardData {
 
 export interface CharacterFull extends Character {
   data: CardData;
+}
+
+export interface Preset {
+  id: string;
+  name: string;
+  created_at: number;
+}
+
+export interface PromptPart {
+  identifier: string;
+  name: string;
+  role: "system" | "user" | "assistant";
+  content: string;
+  injectedAt: { depth: number; order: number } | null;
+}
+
+export interface PromptDump {
+  preset: string;
+  system: string;
+  messages: { role: string; content: string }[];
+  parts: PromptPart[];
+  warnings: string[];
+  emptyBlocks: { identifier: string; name: string }[];
+  maxTokens: number | null;
+  samplingIgnored: Record<string, number>;
 }
 
 export interface Persona {
@@ -135,6 +161,11 @@ export const api = {
   deleteCharacter: (id: string) =>
     json<void>(`/api/characters/${id}`, { method: "DELETE" }),
 
+  listPresets: () => json<Preset[]>("/api/presets"),
+  deletePreset: (id: string) =>
+    json<void>(`/api/presets/${id}`, { method: "DELETE" }),
+  prompt: (chatId: string) => json<PromptDump>(`/api/chats/${chatId}/prompt`),
+
   listPersonas: () => json<Persona[]>("/api/personas"),
   createPersona: (name: string, description: string) =>
     json<Persona>("/api/personas", {
@@ -152,7 +183,11 @@ export const api = {
   /** Binds a card and/or persona; seeds greetings if the chat is still empty. */
   bind: (
     chatId: string,
-    body: { characterId?: string | null; personaId?: string | null },
+    body: {
+      characterId?: string | null;
+      personaId?: string | null;
+      presetId?: string | null;
+    },
   ) =>
     json<Branch & { chat: Chat }>(`/api/chats/${chatId}/bind`, {
       method: "POST",

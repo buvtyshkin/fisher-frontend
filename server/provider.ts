@@ -5,6 +5,8 @@ import type { TokenCounts } from "./pricing.js";
 export interface GenerateRequest {
   system?: string;
   messages: Anthropic.MessageParam[];
+  /** From the preset when it sets one, otherwise the .env default. */
+  maxTokens?: number;
   signal?: AbortSignal;
 }
 
@@ -34,7 +36,7 @@ export const anthropicAdapter: ProviderAdapter = {
     const stream = client.messages.stream(
       {
         model: config.model,
-        max_tokens: config.maxTokens,
+        max_tokens: request.maxTokens ?? config.maxTokens,
         // Claude Opus 5 thinks adaptively when `thinking` is omitted.
         ...(config.thinking === "off"
           ? { thinking: { type: "disabled" as const } }

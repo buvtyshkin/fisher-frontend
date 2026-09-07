@@ -16,6 +16,7 @@ import {
   getCharacter,
   getMessage,
   getPersona,
+  getPreset,
   listChats,
   pathTo,
   renameChat,
@@ -26,7 +27,9 @@ import {
   usageSince,
 } from "../store.js";
 import { applyNameMacros, greetingsOf, type CardData } from "../cards/card.js";
-import { buildSystemPrompt, DEFAULT_USER_NAME } from "../prompt.js";
+import { buildPrompt, DEFAULT_USER_NAME } from "../preset/build.js";
+import { DEFAULT_PRESET } from "../preset/default.js";
+import { parsePreset } from "../preset/preset.js";
 import type { Message } from "../db.js";
 import { anthropicAdapter } from "../provider.js";
 
@@ -62,54 +65,28 @@ const NEXT_BEAT_INSTRUCTION = "Продолжай сцену.";
  */
 const NEW_CHAT_MARKER = "[Start a new Chat]";
 
-/**
- * Converts a branch to Anthropic messages: system nodes are not sent as chat
- * turns yet, a leading assistant message (a card greeting) is preceded by the
- * new-chat marker so it survives, and neighbours of the same role are squashed.
- */
-export function toApiMessages(
-  branch: Message[],
-  extraUser?: string,
-): Anthropic.MessageParam[] {
-  const turns: Anthropic.MessageParam[] = [];
-
-  for (const message of branch) {
-    if (message.role === "system") continue;
-    const role = message.role === "assistant" ? "assistant" : "user";
-    if (turns.length === 0 && role === "assistant") {
-      turns.push({ role: "user", content: NEW_CHAT_MARKER });
-    }
-
-    const last = turns.at(-1);
-    if (last?.role === role) {
-      last.content = `${last.content as string}\n\n${message.content}`;
-    } else {
-      turns.push({ role, content: message.content });
-    }
-  }
-
-  if (extraUser) {
-    const last = turns.at(-1);
-    if (last?.role === "user") {
-      last.content = `${last.content as string}\n\n${extraUser}`;
-    } else {
-      turns.push({ role: "user", content: extraUser });
-    }
-  }
-
-  return turns;
-}
-
-/** The card and persona a chat is bound to, plus the system prompt they make. */
+/** Everything a chat is bound to: card, persona and preset. */
 function chatContext(chatId: string) {
   const chat = getChat(chatId);
   const character = chat?.character_id ? getCharacter(chat.character_id) : undefined;
   const persona = chat?.persona_id ? getPersona(chat.persona_id) : undefined;
-  const card = character ? (JSON.parse(character.data) as CardData) : null;
+  const presetRow = chat?.preset_id ? getPreset(chat.preset_id) : undefined;
+
   return {
-    card,
+    card: character ? (JSON.parse(character.data) as CardData) : null,
     persona: persona ?? null,
-    system: buildSystemPrompt(card, persona ?? null),
+    preset: presetRow
+      ? parsePreset(presetRow.data, presetRow.name)
+      : DEFAULT_PRESET,
+  };
+}
+
+/** Assembles the request for a branch through the preset engine. */
+function assemble(chatId: string, branch: Message[], extraUser?: string) {
+  const { card, persona, preset } = chatContext(chatId);
+  return {
+    ...buildPrompt({ preset, card, persona, branch, extraUser }),
+    maxTokens: preset.maxTokens ?? undefined,
   };
 }
 
@@ -132,8 +109,8 @@ export function generationPlan(branch: Message[]): GenerationPlan | null {
 }
 
 interface StreamOptions {
+  chatId: string;
   context: Message[];
-  system?: string;
   extraUser?: string;
   /** Called once the model finishes; returns the message to report as done. */
   onComplete: (
@@ -174,12 +151,16 @@ async function streamGeneration(
     if (!reply.raw.writableEnded) controller.abort();
   });
 
+  const built = assemble(options.chatId, options.context, options.extraUser);
+  for (const warning of built.warnings) app.log.warn(warning);
+
   let answer = "";
   try {
     const result = await anthropicAdapter.streamReply(
       {
-        system: options.system,
-        messages: toApiMessages(options.context, options.extraUser),
+        system: built.system,
+        messages: built.messages,
+        maxTokens: built.maxTokens,
         signal: controller.signal,
       },
       (chunk) => {
@@ -232,7 +213,11 @@ export async function chatRoutes(app: FastifyInstance) {
    */
   app.post<{
     Params: IdParams;
-    Body: { characterId?: string | null; personaId?: string | null };
+    Body: {
+      characterId?: string | null;
+      personaId?: string | null;
+      presetId?: string | null;
+    };
   }>("/api/chats/:id/bind", async (req, reply) => {
     const chat = getChat(req.params.id);
     if (!chat) return reply.code(404).send({ error: "not found" });
@@ -242,6 +227,9 @@ export async function chatRoutes(app: FastifyInstance) {
     }
     if (req.body?.personaId && !getPersona(req.body.personaId)) {
       return reply.code(404).send({ error: "персона не найдена" });
+    }
+    if (req.body?.presetId && !getPreset(req.body.presetId)) {
+      return reply.code(404).send({ error: "пресет не найден" });
     }
 
     const updated = bindChat(chat.id, req.body ?? {})!;
@@ -259,6 +247,33 @@ export async function chatRoutes(app: FastifyInstance) {
     }
 
     return { chat: updated, ...branchResponse(chat.id) };
+  });
+
+  /** The assembled prompt, block by block — the debug screen from the spec. */
+  app.get<{ Params: IdParams }>("/api/chats/:id/prompt", async (req, reply) => {
+    const chat = getChat(req.params.id);
+    if (!chat) return reply.code(404).send({ error: "not found" });
+
+    const { preset } = chatContext(chat.id);
+    const built = assemble(chat.id, getBranch(chat.id));
+
+    return {
+      preset: preset.name,
+      system: built.system ?? "",
+      messages: built.messages,
+      parts: built.parts.map((part: (typeof built.parts)[number]) => ({
+        identifier: part.identifier,
+        name: part.name,
+        role: part.role,
+        content: part.content,
+        injectedAt: part.injectedAt ?? null,
+      })),
+      warnings: built.warnings,
+      emptyBlocks: built.emptyBlocks,
+      maxTokens: preset.maxTokens,
+      // Kept visible but never sent: current Claude models reject these.
+      samplingIgnored: preset.sampling,
+    };
   });
 
   app.get("/api/usage", async () => {
@@ -325,8 +340,8 @@ export async function chatRoutes(app: FastifyInstance) {
         app,
         reply,
         {
+          chatId: chat.id,
           context: [...branch, userMessage],
-          system: chatContext(chat.id).system,
           onComplete: (text, model, usage) =>
             appendMessage({
               chatId: chat.id,
@@ -363,8 +378,8 @@ export async function chatRoutes(app: FastifyInstance) {
     if (!plan) return reply.code(400).send({ error: "в ветке нет сообщений" });
 
     await streamGeneration(app, reply, {
+      chatId: chat.id,
       context: branch,
-      system: chatContext(chat.id).system,
       extraUser: plan.extraUser,
       onComplete: (text, model, usage) =>
         appendMessage({
@@ -394,8 +409,8 @@ export async function chatRoutes(app: FastifyInstance) {
     }
 
     await streamGeneration(app, reply, {
+      chatId: target.chat_id,
       context: pathTo(target.parent_id),
-      system: chatContext(target.chat_id).system,
       onComplete: (text, model, usage) =>
         appendMessage({
           chatId: target.chat_id,
@@ -424,8 +439,8 @@ export async function chatRoutes(app: FastifyInstance) {
     }
 
     await streamGeneration(app, reply, {
+      chatId: target.chat_id,
       context: pathTo(target.id),
-      system: chatContext(target.chat_id).system,
       extraUser: CONTINUE_INSTRUCTION,
       onComplete: (text, model, usage) =>
         appendToMessage(target.id, text, model, usage ?? null),
