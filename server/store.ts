@@ -5,6 +5,7 @@ import {
   type CharacterRow,
   type Message,
   type PersonaRow,
+  type LorebookRow,
   type PresetRow,
 } from "./db.js";
 import { costOf, type TokenCounts } from "./pricing.js";
@@ -561,4 +562,59 @@ export function seedGreetings(chatId: string, greetings: string[]): void {
     }
     if (firstId) setActiveLeaf(chatId, firstId);
   })();
+}
+
+/* ── Lorebooks ───────────────────────────────────────────────────────────── */
+
+export function listLorebooks(): Omit<LorebookRow, "data">[] {
+  return db
+    .prepare("SELECT id, name, created_at FROM lorebooks ORDER BY name")
+    .all() as Omit<LorebookRow, "data">[];
+}
+
+export function getLorebook(id: string): LorebookRow | undefined {
+  return db.prepare("SELECT * FROM lorebooks WHERE id = ?").get(id) as
+    | LorebookRow
+    | undefined;
+}
+
+export function saveLorebook(input: { name: string; data: string }): LorebookRow {
+  const row: LorebookRow = {
+    id: randomUUID(),
+    name: input.name,
+    data: input.data,
+    created_at: Date.now(),
+  };
+  db.prepare(
+    "INSERT INTO lorebooks (id, name, data, created_at) VALUES (@id, @name, @data, @created_at)",
+  ).run(row);
+  return row;
+}
+
+export function deleteLorebook(id: string): void {
+  db.prepare("DELETE FROM lorebooks WHERE id = ?").run(id);
+}
+
+/** Lorebooks attached to a chat, in name order. */
+export function chatLorebooks(chatId: string): LorebookRow[] {
+  return db
+    .prepare(
+      `SELECT l.* FROM lorebooks l
+         JOIN chat_lorebooks cl ON cl.lorebook_id = l.id
+        WHERE cl.chat_id = ?
+        ORDER BY l.name`,
+    )
+    .all(chatId) as LorebookRow[];
+}
+
+export function attachLorebook(chatId: string, lorebookId: string): void {
+  db.prepare(
+    "INSERT OR IGNORE INTO chat_lorebooks (chat_id, lorebook_id) VALUES (?, ?)",
+  ).run(chatId, lorebookId);
+}
+
+export function detachLorebook(chatId: string, lorebookId: string): void {
+  db.prepare(
+    "DELETE FROM chat_lorebooks WHERE chat_id = ? AND lorebook_id = ?",
+  ).run(chatId, lorebookId);
 }

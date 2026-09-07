@@ -61,6 +61,20 @@ db.exec(`
     created_at INTEGER NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS lorebooks (
+    id         TEXT PRIMARY KEY,
+    name       TEXT NOT NULL,
+    data       TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+  );
+
+  -- A chat can carry several lorebooks at once, as in SillyTavern.
+  CREATE TABLE IF NOT EXISTS chat_lorebooks (
+    chat_id     TEXT NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
+    lorebook_id TEXT NOT NULL REFERENCES lorebooks(id) ON DELETE CASCADE,
+    PRIMARY KEY (chat_id, lorebook_id)
+  );
+
   CREATE INDEX IF NOT EXISTS idx_messages_chat    ON messages(chat_id);
   CREATE INDEX IF NOT EXISTS idx_messages_parent  ON messages(parent_id);
   CREATE INDEX IF NOT EXISTS idx_messages_created ON messages(created_at);
@@ -149,6 +163,14 @@ export interface PresetRow {
   id: string;
   name: string;
   /** The imported preset JSON, verbatim. */
+  data: string;
+  created_at: number;
+}
+
+export interface LorebookRow {
+  id: string;
+  name: string;
+  /** The imported World Info JSON, verbatim. */
   data: string;
   created_at: number;
 }

@@ -5,6 +5,7 @@ import {
   type Character,
   type Chat,
   type Persona,
+  type Lorebook,
   type Preset,
 } from "./api.ts";
 import { CardEditor } from "./CardEditor.tsx";
@@ -20,6 +21,8 @@ export function Library({ chat, onClose, onBound }: LibraryProps) {
   const [characters, setCharacters] = useState<Character[]>([]);
   const [personas, setPersonas] = useState<Persona[]>([]);
   const [presets, setPresets] = useState<Preset[]>([]);
+  const [lorebooks, setLorebooks] = useState<Lorebook[]>([]);
+  const [attached, setAttached] = useState<string[]>([]);
   const [presetId, setPresetId] = useState(chat.preset_id);
   const [characterId, setCharacterId] = useState(chat.character_id);
   const [personaId, setPersonaId] = useState(chat.persona_id);
@@ -32,16 +35,22 @@ export function Library({ chat, onClose, onBound }: LibraryProps) {
 
   const fileRef = useRef<HTMLInputElement>(null);
   const presetRef = useRef<HTMLInputElement>(null);
+  const loreRef = useRef<HTMLInputElement>(null);
 
   async function refresh() {
-    const [nextCharacters, nextPersonas, nextPresets] = await Promise.all([
-      api.listCharacters(),
-      api.listPersonas(),
-      api.listPresets(),
-    ]);
+    const [nextCharacters, nextPersonas, nextPresets, nextBooks, nextAttached] =
+      await Promise.all([
+        api.listCharacters(),
+        api.listPersonas(),
+        api.listPresets(),
+        api.listLorebooks(),
+        api.chatLorebooks(chat.id),
+      ]);
     setCharacters(nextCharacters);
     setPersonas(nextPersonas);
     setPresets(nextPresets);
+    setLorebooks(nextBooks);
+    setAttached(nextAttached.map((book) => book.id));
   }
 
   useEffect(() => {
@@ -60,6 +69,7 @@ export function Library({ chat, onClose, onBound }: LibraryProps) {
       setBusy(false);
       if (fileRef.current) fileRef.current.value = "";
       if (presetRef.current) presetRef.current.value = "";
+      if (loreRef.current) loreRef.current.value = "";
     }
   }
 
@@ -241,6 +251,70 @@ export function Library({ chat, onClose, onBound }: LibraryProps) {
               </button>
             </p>
           )}
+        </section>
+
+        <section className="period">
+          <h3>
+            Лорбуки
+            <button disabled={busy} onClick={() => loreRef.current?.click()}>
+              Импорт World Info
+            </button>
+          </h3>
+          <input
+            ref={loreRef}
+            type="file"
+            accept=".json,application/json"
+            hidden
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) void importFile("/api/lorebooks/import", file);
+            }}
+          />
+          <ul className="library">
+            {lorebooks.map((book) => {
+              const on = attached.includes(book.id);
+              return (
+                <li key={book.id} className={on ? "row active" : "row"}>
+                  <span className="row-name">{book.name}</span>
+                  <span className="row-actions">
+                    <button
+                      disabled={busy}
+                      onClick={async () => {
+                        setBusy(true);
+                        try {
+                          const next = await api.setChatLorebook(chat.id, book.id, !on);
+                          setAttached(next.map((b) => b.id));
+                          onBound();
+                        } finally {
+                          setBusy(false);
+                        }
+                      }}
+                    >
+                      {on ? "Отключить" : "Подключить"}
+                    </button>
+                    <a className="button" href={`/api/lorebooks/${book.id}/export`}>
+                      Экспорт
+                    </a>
+                    <button
+                      disabled={busy}
+                      onClick={async () => {
+                        if (!confirm(`Удалить лорбук «${book.name}»?`)) return;
+                        await api.deleteLorebook(book.id);
+                        await refresh();
+                      }}
+                    >
+                      ✕
+                    </button>
+                  </span>
+                </li>
+              );
+            })}
+            {lorebooks.length === 0 && <li className="empty">Лорбуков пока нет</li>}
+          </ul>
+          <p className="hint small">
+            Можно подключить несколько сразу. Какие записи сработали на текущей
+            ветке — видно в экране «Промпт».
+          </p>
         </section>
 
         <section className="period">

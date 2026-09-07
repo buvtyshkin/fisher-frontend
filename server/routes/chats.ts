@@ -17,6 +17,9 @@ import {
   getMessage,
   getPersona,
   getPreset,
+  chatLorebooks,
+  attachLorebook,
+  detachLorebook,
   listChats,
   pathTo,
   renameChat,
@@ -30,6 +33,13 @@ import { applyNameMacros, greetingsOf, type CardData } from "../cards/card.js";
 import { buildPrompt, DEFAULT_USER_NAME } from "../preset/build.js";
 import { DEFAULT_PRESET } from "../preset/default.js";
 import { parsePreset } from "../preset/preset.js";
+import { parseLorebook } from "../lorebook/lorebook.js";
+import {
+  DEFAULT_WORLD_INFO_SETTINGS,
+  keyScanEngine,
+} from "../lorebook/engine.js";
+import { placeEntries } from "../lorebook/placement.js";
+import { config } from "../config.js";
 import type { Message } from "../db.js";
 import { anthropicAdapter } from "../provider.js";
 
@@ -84,9 +94,41 @@ function chatContext(chatId: string) {
 /** Assembles the request for a branch through the preset engine. */
 function assemble(chatId: string, branch: Message[], extraUser?: string) {
   const { card, persona, preset } = chatContext(chatId);
+  const { lore, activated } = scanLore(chatId, branch);
   return {
-    ...buildPrompt({ preset, card, persona, branch, extraUser }),
+    ...buildPrompt({ preset, card, persona, branch, extraUser, lore }),
     maxTokens: preset.maxTokens ?? undefined,
+    activatedLore: activated,
+  };
+}
+
+/** Runs every lorebook attached to the chat through the activation engine. */
+function scanLore(chatId: string, branch: Message[]) {
+  const entries = chatLorebooks(chatId).flatMap(
+    (row) => parseLorebook(row.data, row.name).entries,
+  );
+  if (entries.length === 0) {
+    return { lore: undefined, activated: [] as { title: string; reason: string }[] };
+  }
+
+  const activated = keyScanEngine.activate({
+    entries,
+    messages: branch.map((message) => message.content),
+    settings: {
+      ...DEFAULT_WORLD_INFO_SETTINGS,
+      scanDepth: config.worldInfo.scanDepth,
+      recursive: config.worldInfo.recursive,
+      caseSensitive: config.worldInfo.caseSensitive,
+      matchWholeWords: config.worldInfo.matchWholeWords,
+    },
+  });
+
+  return {
+    lore: placeEntries(activated),
+    activated: activated.map(({ entry, reason }) => ({
+      title: entry.comment,
+      reason,
+    })),
   };
 }
 
@@ -270,11 +312,41 @@ export async function chatRoutes(app: FastifyInstance) {
       })),
       warnings: built.warnings,
       emptyBlocks: built.emptyBlocks,
+      activatedLore: built.activatedLore,
       maxTokens: preset.maxTokens,
       // Kept visible but never sent: current Claude models reject these.
       samplingIgnored: preset.sampling,
     };
   });
+
+  /** Attaches or detaches a lorebook; a chat can carry several. */
+  app.post<{ Params: IdParams; Body: { lorebookId: string; attached: boolean } }>(
+    "/api/chats/:id/lorebooks",
+    async (req, reply) => {
+      const chat = getChat(req.params.id);
+      if (!chat) return reply.code(404).send({ error: "not found" });
+
+      const { lorebookId, attached } = req.body ?? {};
+      if (!lorebookId) return reply.code(400).send({ error: "нужен lorebookId" });
+
+      if (attached) attachLorebook(chat.id, lorebookId);
+      else detachLorebook(chat.id, lorebookId);
+
+      return chatLorebooks(chat.id).map((row) => ({
+        id: row.id,
+        name: row.name,
+        created_at: row.created_at,
+      }));
+    },
+  );
+
+  app.get<{ Params: IdParams }>("/api/chats/:id/lorebooks", async (req) =>
+    chatLorebooks(req.params.id).map((row) => ({
+      id: row.id,
+      name: row.name,
+      created_at: row.created_at,
+    })),
+  );
 
   app.get("/api/usage", async () => {
     const now = Date.now();

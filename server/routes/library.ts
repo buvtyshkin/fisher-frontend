@@ -2,15 +2,20 @@ import type { FastifyInstance, FastifyReply } from "fastify";
 import { extractCardJson, writeCardIntoPng } from "../cards/png.js";
 import { parseCard, toExportJson, type CardData } from "../cards/card.js";
 import { parsePreset } from "../preset/preset.js";
+import { parseLorebook } from "../lorebook/lorebook.js";
 import {
   deleteCharacter,
   deletePersona,
+  deleteLorebook,
   deletePreset,
   getCharacter,
   getPersona,
   listCharacters,
   listPersonas,
+  getLorebook,
+  listLorebooks,
   listPresets,
+  saveLorebook,
   savePreset,
   savePersona,
   saveCharacter,
@@ -214,6 +219,47 @@ export async function libraryRoutes(app: FastifyInstance) {
   app.delete<{ Params: IdParams }>("/api/presets/:id", async (req, reply) => {
     deletePreset(req.params.id);
     return reply.code(204).send();
+  });
+
+  /* ── Lorebooks ─────────────────────────────────────────────────────────── */
+
+  app.get("/api/lorebooks", async () => listLorebooks());
+
+  /** Imports a SillyTavern World Info file. */
+  app.post("/api/lorebooks/import", async (req, reply) => {
+    const upload = await req.file();
+    if (!upload) return reply.code(400).send({ error: "нет файла" });
+
+    const json = (await upload.toBuffer()).toString("utf8");
+    const fallbackName = upload.filename.replace(/\.json$/i, "") || "Лорбук";
+
+    try {
+      const book = parseLorebook(json, fallbackName);
+      const saved = saveLorebook({ name: book.name || fallbackName, data: json });
+      return reply.code(201).send({
+        id: saved.id,
+        name: saved.name,
+        created_at: saved.created_at,
+        entries: book.entries.length,
+      });
+    } catch (error) {
+      return reply.code(400).send({ error: (error as Error).message });
+    }
+  });
+
+  app.delete<{ Params: IdParams }>("/api/lorebooks/:id", async (req, reply) => {
+    deleteLorebook(req.params.id);
+    return reply.code(204).send();
+  });
+
+  /** Exports the World Info file exactly as it was imported. */
+  app.get<{ Params: IdParams }>("/api/lorebooks/:id/export", async (req, reply) => {
+    const book = getLorebook(req.params.id);
+    if (!book) return reply.code(404).send({ error: "not found" });
+    return reply
+      .header("Content-Type", "application/json; charset=utf-8")
+      .header("Content-Disposition", contentDisposition(book.name, "json"))
+      .send(book.data);
   });
 
   /* ── Personas ──────────────────────────────────────────────────────────── */

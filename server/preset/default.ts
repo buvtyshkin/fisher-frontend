@@ -17,10 +17,12 @@ const marker = (identifier: string, name: string): PresetPrompt => ({
 });
 
 const prompts: PresetPrompt[] = [
+  marker("worldInfoBefore", "Лорбук (до карточки)"),
   marker("charDescription", "Описание персонажа"),
   marker("charPersonality", "Характер"),
   marker("scenario", "Сцена"),
   marker("personaDescription", "Персона игрока"),
+  marker("worldInfoAfter", "Лорбук (после карточки)"),
   marker("dialogueExamples", "Примеры реплик"),
   {
     identifier: "chatHistory",

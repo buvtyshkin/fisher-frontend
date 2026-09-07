@@ -338,3 +338,12 @@ a.button:hover { border-color: var(--accent); color: var(--accent); }
   font-family: ui-monospace, monospace; font-size: 12px; line-height: 1.5;
   white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text-dim);
 }
+
+/* Which lorebook entries fired */
+.lore-fired {
+  margin-top: 10px; padding: 8px 10px;
+  border: 1px solid var(--border); border-radius: 6px; font-size: 13px;
+}
+.lore-fired summary { cursor: pointer; color: var(--accent); }
+.lore-fired ul { margin: 8px 0 0; padding-left: 18px; line-height: 1.7; }
+.lore-fired .tag { margin-left: 6px; }

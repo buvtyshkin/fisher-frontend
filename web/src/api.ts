@@ -44,6 +44,12 @@ export interface Preset {
   created_at: number;
 }
 
+export interface Lorebook {
+  id: string;
+  name: string;
+  created_at: number;
+}
+
 export interface PromptPart {
   identifier: string;
   name: string;
@@ -59,6 +65,7 @@ export interface PromptDump {
   parts: PromptPart[];
   warnings: string[];
   emptyBlocks: { identifier: string; name: string }[];
+  activatedLore: { title: string; reason: string }[];
   maxTokens: number | null;
   samplingIgnored: Record<string, number>;
 }
@@ -165,6 +172,17 @@ export const api = {
   deletePreset: (id: string) =>
     json<void>(`/api/presets/${id}`, { method: "DELETE" }),
   prompt: (chatId: string) => json<PromptDump>(`/api/chats/${chatId}/prompt`),
+
+  listLorebooks: () => json<Lorebook[]>("/api/lorebooks"),
+  deleteLorebook: (id: string) =>
+    json<void>(`/api/lorebooks/${id}`, { method: "DELETE" }),
+  chatLorebooks: (chatId: string) =>
+    json<Lorebook[]>(`/api/chats/${chatId}/lorebooks`),
+  setChatLorebook: (chatId: string, lorebookId: string, attached: boolean) =>
+    json<Lorebook[]>(`/api/chats/${chatId}/lorebooks`, {
+      method: "POST",
+      body: JSON.stringify({ lorebookId, attached }),
+    }),
 
   listPersonas: () => json<Persona[]>("/api/personas"),
   createPersona: (name: string, description: string) =>

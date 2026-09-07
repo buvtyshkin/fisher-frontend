@@ -456,3 +456,57 @@ test("an empty depth prompt is ignored rather than injected blank", () => {
     [],
   );
 });
+
+test("the built-in preset has somewhere to put lorebook entries", () => {
+  // Without these slots a lorebook activates and then goes nowhere for any
+  // chat that has no imported preset.
+  const built = buildPrompt({
+    preset: DEFAULT_PRESET,
+    card: null,
+    persona: null,
+    branch,
+    lore: { before: "ДО КАРТОЧКИ", after: "ПОСЛЕ КАРТОЧКИ", depths: [], unsupported: [] },
+  });
+  assert.match(built.system!, /ДО КАРТОЧКИ/);
+  assert.match(built.system!, /ПОСЛЕ КАРТОЧКИ/);
+});
+
+test("lore placed at a depth is injected into the chat, not the system prompt", () => {
+  const built = buildPrompt({
+    preset: DEFAULT_PRESET,
+    card: null,
+    persona: null,
+    branch: [message("user", "раз"), message("assistant", "два"), message("user", "три")],
+    lore: {
+      before: "",
+      after: "",
+      depths: [{ depth: 1, role: 0, content: "НА ГЛУБИНЕ", entries: ["НА ГЛУБИНЕ"] }],
+      unsupported: [],
+    },
+  });
+
+  const at = built.parts.findIndex((p) => p.identifier === "worldInfoDepth");
+  assert.notEqual(at, -1);
+  assert.equal(built.parts[at].injectedAt?.depth, 1);
+  assert.deepEqual(
+    built.parts.slice(at + 1).map((p) => p.content),
+    ["три"],
+  );
+  assert.ok(!(built.system ?? "").includes("НА ГЛУБИНЕ"));
+});
+
+test("an unplaceable lorebook position is reported as a warning", () => {
+  const built = buildPrompt({
+    preset: DEFAULT_PRESET,
+    card: null,
+    persona: null,
+    branch,
+    lore: {
+      before: "",
+      after: "",
+      depths: [],
+      unsupported: [{ title: "заметка автора", position: 2 }],
+    },
+  });
+  assert.match(built.warnings.join(" "), /заметка автора/);
+});

@@ -3,6 +3,7 @@ import type { CardData } from "../cards/card.js";
 import type { Message, PersonaRow } from "../db.js";
 import { applyMacros, createMacroContext } from "./macros.js";
 import type { Preset, PresetPrompt, PromptRole } from "./preset.js";
+import type { PlacedLore } from "../lorebook/placement.js";
 
 /**
  * Reproduces SillyTavern's assembly order for a Chat Completion preset:
@@ -20,6 +21,8 @@ export interface BuildInput {
   extraUser?: string;
   /** Chronicle text for {{summary}}; empty until phase 6. */
   summary?: string;
+  /** Activated lorebook entries, already placed into their slots. */
+  lore?: PlacedLore;
 }
 
 /** One assembled piece, kept separate so the debug screen can show its origin. */
@@ -89,11 +92,9 @@ export function buildPrompt(input: BuildInput): BuiltPrompt {
           ? `${preset.newExampleChatPrompt}\n${card.mes_example}`
           : "";
       case "worldInfoBefore":
+        return input.lore?.before ?? "";
       case "worldInfoAfter":
-        warnings.push(
-          `Блок «${prompt.name}» пуст: лорбуки появятся в Фазе 4`,
-        );
-        return "";
+        return input.lore?.after ?? "";
       default:
         warnings.push(
           `Блок-маркер «${prompt.name}» (${prompt.identifier}) пока не поддерживается — пропущен`,
@@ -146,6 +147,12 @@ export function buildPrompt(input: BuildInput): BuiltPrompt {
   if (historyIndex === -1) {
     warnings.push("В пресете нет блока chatHistory — история добавлена в конец");
     historyIndex = ordered.length;
+  }
+
+  for (const entry of input.lore?.unsupported ?? []) {
+    warnings.push(
+      `Запись лорбука «${entry.title}» с позицией ${entry.position} пропущена: такого слота пока нет`,
+    );
   }
 
   const history = buildHistory(input, expand, injections);
@@ -236,7 +243,18 @@ function buildHistory(
     });
   }
 
-  const sorted = [...injections].sort(
+  const loreAtDepth: PresetPrompt[] = (input.lore?.depths ?? []).map((group) => ({
+    identifier: "worldInfoDepth",
+    name: `Лорбук на глубине ${group.depth}`,
+    role: group.role === 1 ? "user" : group.role === 2 ? "assistant" : "system",
+    content: group.content,
+    marker: false,
+    injection_position: 1,
+    injection_depth: group.depth,
+    injection_order: 100,
+  }));
+
+  const sorted = [...injections, ...loreAtDepth].sort(
     (a, b) => a.injection_order - b.injection_order,
   );
 

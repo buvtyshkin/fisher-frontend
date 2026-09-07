@@ -63,6 +63,21 @@ export function PromptDebug({
               </ul>
             )}
 
+            {dump.activatedLore.length > 0 && (
+              <details className="lore-fired">
+                <summary>
+                  Лорбук: сработало записей — {dump.activatedLore.length}
+                </summary>
+                <ul>
+                  {dump.activatedLore.map((item, index) => (
+                    <li key={index}>
+                      {item.title} <span className="tag">{item.reason}</span>
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            )}
+
             {dump.emptyBlocks.length > 0 && (
               <p className="hint small">
                 Включены, но вышли пустыми:{" "}

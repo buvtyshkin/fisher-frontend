@@ -18,4 +18,11 @@ export const config = {
   maxTokens: Number(process.env.MAX_TOKENS ?? 8000),
   thinking: (process.env.THINKING ?? "adaptive") as "adaptive" | "off",
   dataDir: process.env.DATA_DIR ?? "./data",
+  // SillyTavern's global World Info settings; its own defaults.
+  worldInfo: {
+    scanDepth: Number(process.env.WI_SCAN_DEPTH ?? 2),
+    recursive: process.env.WI_RECURSIVE !== "false",
+    caseSensitive: process.env.WI_CASE_SENSITIVE === "true",
+    matchWholeWords: process.env.WI_MATCH_WHOLE_WORDS !== "false",
+  },
 };
