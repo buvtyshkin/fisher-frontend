@@ -38,6 +38,9 @@ export interface PromptPart {
 export interface BuiltPrompt {
   system: string | undefined;
   messages: Anthropic.MessageParam[];
+  /** Which parts each message was squashed from — the cache planner needs it
+   *  to tell a stable message from one carrying a moving injection. */
+  messageParts: PromptPart[][];
   parts: PromptPart[];
   warnings: string[];
   /** Enabled blocks that rendered to nothing — the first thing to check when
@@ -285,6 +288,7 @@ function buildHistory(
 function toAnthropic(parts: PromptPart[]): {
   system: string | undefined;
   messages: Anthropic.MessageParam[];
+  messageParts: PromptPart[][];
 } {
   const firstNonSystem = parts.findIndex((part) => part.role !== "system");
   const head = firstNonSystem === -1 ? parts : parts.slice(0, firstNonSystem);
@@ -293,15 +297,19 @@ function toAnthropic(parts: PromptPart[]): {
   const system = head.map((part) => part.content).join("\n\n").trim();
 
   const messages: Anthropic.MessageParam[] = [];
+  const messageParts: PromptPart[][] = [];
+
   for (const part of tail) {
     const role = part.role === "assistant" ? "assistant" : "user";
     const last = messages.at(-1);
     if (last?.role === role) {
       last.content = `${last.content as string}\n\n${part.content}`;
+      messageParts.at(-1)!.push(part);
     } else {
       messages.push({ role, content: part.content });
+      messageParts.push([part]);
     }
   }
 
-  return { system: system || undefined, messages };
+  return { system: system || undefined, messages, messageParts };
 }

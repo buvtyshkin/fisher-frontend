@@ -25,8 +25,11 @@ export function PromptDebug({
 
   const asText = (dump: PromptDump) =>
     [
-      `=== system ===\n${dump.system}`,
-      ...dump.messages.map((m) => `=== ${m.role} ===\n${m.content}`),
+      `=== system ===${dump.cache.systemBreakpoint ? "  [точка кэширования]" : ""}\n${dump.system}`,
+      ...dump.messages.map(
+        (m, index) =>
+          `=== ${m.role} ===${dump.cache.breakpoints.includes(index) ? "  [точка кэширования]" : ""}\n${m.content}`,
+      ),
     ].join("\n\n");
 
   const sampling = Object.entries(dump?.samplingIgnored ?? {});
@@ -62,6 +65,24 @@ export function PromptDebug({
                 ))}
               </ul>
             )}
+
+            <p className="cache-line">
+              Кэш:{" "}
+              {dump.cache.breakpoints.length === 0 && !dump.cache.systemBreakpoint
+                ? "выключен"
+                : [
+                    dump.cache.systemBreakpoint ? "системный промпт" : null,
+                    dump.cache.breakpoints.length > 0
+                      ? `точки на сообщениях ${dump.cache.breakpoints.join(", ")}` +
+                        (dump.cache.effectiveFromEnd !== null
+                          ? ` (${dump.cache.effectiveFromEnd} от конца)`
+                          : "")
+                      : "в сообщениях выключен",
+                    `TTL ${dump.cache.ttl}`,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
+            </p>
 
             {dump.activatedLore.length > 0 && (
               <details className="lore-fired">

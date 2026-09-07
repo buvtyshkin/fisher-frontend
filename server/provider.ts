@@ -3,7 +3,7 @@ import { config } from "./config.js";
 import type { TokenCounts } from "./pricing.js";
 
 export interface GenerateRequest {
-  system?: string;
+  system?: string | Anthropic.TextBlockParam[];
   messages: Anthropic.MessageParam[];
   /** From the preset when it sets one, otherwise the .env default. */
   maxTokens?: number;

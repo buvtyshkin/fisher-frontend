@@ -39,6 +39,7 @@ import {
   keyScanEngine,
 } from "../lorebook/engine.js";
 import { placeEntries } from "../lorebook/placement.js";
+import { applyCache, planCache } from "../preset/cache.js";
 import { config } from "../config.js";
 import type { Message } from "../db.js";
 import { anthropicAdapter } from "../provider.js";
@@ -75,6 +76,12 @@ const NEXT_BEAT_INSTRUCTION = "Продолжай сцену.";
  */
 const NEW_CHAT_MARKER = "[Start a new Chat]";
 
+/** ~1024 tokens of Russian prose, the smallest prefix models will cache. */
+const MIN_CACHEABLE_CHARS = 2500;
+
+const flatten = (system: string | { text: string }[] | undefined): string =>
+  typeof system === "string" ? system : (system ?? []).map((b) => b.text).join("");
+
 /** Everything a chat is bound to: card, persona and preset. */
 function chatContext(chatId: string) {
   const chat = getChat(chatId);
@@ -95,8 +102,33 @@ function chatContext(chatId: string) {
 function assemble(chatId: string, branch: Message[], extraUser?: string) {
   const { card, persona, preset } = chatContext(chatId);
   const { lore, activated } = scanLore(chatId, branch);
+  const built = buildPrompt({ preset, card, persona, branch, extraUser, lore });
+
+  const plan = planCache(built.messages, built.messageParts, config.cache);
+  const cached = applyCache(built.system, built.messages, plan);
+
+  // A prefix below the model's minimum is not cached and nothing says so —
+  // the request just quietly costs full price. Warn on the rough estimate.
+  if (plan.systemBreakpoint || plan.breakpoints.length > 0) {
+    const cachedChars =
+      flatten(built.system).length +
+      built.messages
+        .slice(0, (plan.breakpoints.at(-1) ?? -1) + 1)
+        .reduce((sum, m) => sum + String(m.content).length, 0);
+    if (cachedChars < MIN_CACHEABLE_CHARS) {
+      plan.warnings.push(
+        `Префикс под кэшем короткий (~${cachedChars} символов). Модели не кэшируют ` +
+          `префикс меньше примерно 1024 токенов — запрос может пойти по полной цене.`,
+      );
+    }
+  }
+
   return {
-    ...buildPrompt({ preset, card, persona, branch, extraUser, lore }),
+    ...built,
+    system: cached.system,
+    messages: cached.messages,
+    warnings: [...built.warnings, ...plan.warnings],
+    cache: plan,
     maxTokens: preset.maxTokens ?? undefined,
     activatedLore: activated,
   };
@@ -301,8 +333,16 @@ export async function chatRoutes(app: FastifyInstance) {
 
     return {
       preset: preset.name,
-      system: built.system ?? "",
-      messages: built.messages,
+      system: flatten(built.system),
+      // Cached messages carry content blocks; the debug view wants the text.
+      messages: built.messages.map((message) => ({
+        role: message.role,
+        content: Array.isArray(message.content)
+          ? message.content
+              .map((block) => ("text" in block ? block.text : ""))
+              .join("")
+          : (message.content as string),
+      })),
       parts: built.parts.map((part: (typeof built.parts)[number]) => ({
         identifier: part.identifier,
         name: part.name,
@@ -313,6 +353,13 @@ export async function chatRoutes(app: FastifyInstance) {
       warnings: built.warnings,
       emptyBlocks: built.emptyBlocks,
       activatedLore: built.activatedLore,
+      cache: {
+        requestedDepth: built.cache.requestedDepth,
+        breakpoints: built.cache.breakpoints,
+        systemBreakpoint: built.cache.systemBreakpoint,
+        effectiveFromEnd: built.cache.effectiveFromEnd,
+        ttl: built.cache.ttl,
+      },
       maxTokens: preset.maxTokens,
       // Kept visible but never sent: current Claude models reject these.
       samplingIgnored: preset.sampling,

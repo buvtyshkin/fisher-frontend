@@ -66,6 +66,13 @@ export interface PromptDump {
   warnings: string[];
   emptyBlocks: { identifier: string; name: string }[];
   activatedLore: { title: string; reason: string }[];
+  cache: {
+    requestedDepth: number;
+    breakpoints: number[];
+    systemBreakpoint: boolean;
+    effectiveFromEnd: number | null;
+    ttl: string;
+  };
   maxTokens: number | null;
   samplingIgnored: Record<string, number>;
 }

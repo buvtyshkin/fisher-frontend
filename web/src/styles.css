@@ -347,3 +347,9 @@ a.button:hover { border-color: var(--accent); color: var(--accent); }
 .lore-fired summary { cursor: pointer; color: var(--accent); }
 .lore-fired ul { margin: 8px 0 0; padding-left: 18px; line-height: 1.7; }
 .lore-fired .tag { margin-left: 6px; }
+
+.cache-line {
+  margin: 10px 0 0; padding: 7px 10px;
+  border: 1px solid var(--border); border-radius: 6px;
+  font-family: ui-monospace, monospace; font-size: 12px; color: var(--accent);
+}
