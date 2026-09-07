@@ -253,25 +253,37 @@ export function App() {
       <main className="main">
         <header className="topbar">
           <button className="burger" onClick={() => setSidebarOpen((v) => !v)}>☰</button>
-          <span className="title">{activeChat?.title ?? "Fisher"}</span>
-          {activeChat && (
-            <button className="usage-button" onClick={() => setLibraryOpen(true)}>
-              {characterName ?? "Персонаж"}
-            </button>
-          )}
-          {activeId && branch.leaves > 1 && (
+          <span className="title" title={activeChat?.title ?? "Fisher"}>
+            {activeChat?.title ?? "Fisher"}
+            {characterName && <span className="with">· {characterName}</span>}
+          </span>
+          {/* One group, so on a phone the controls wrap as a row of their own. */}
+          <div className="topbar-actions">
+          {branch.leaves > 1 && (
             <span className="leaves" title="Веток в этом чате">
               веток: {branch.leaves}
             </span>
           )}
-          {activeId && (
-            <button className="usage-button" onClick={() => setPromptOpen(true)}>
-              Промпт
-            </button>
-          )}
+          <button
+            className="usage-button"
+            disabled={!activeChat}
+            title="Персонажи, персоны и пресеты"
+            onClick={() => setLibraryOpen(true)}
+          >
+            Библиотека
+          </button>
+          <button
+            className="usage-button"
+            disabled={!activeId}
+            title="Показать собранный запрос к модели"
+            onClick={() => setPromptOpen(true)}
+          >
+            Промпт
+          </button>
           <button className="usage-button" onClick={() => setUsageOpen(true)}>
             Расходы
           </button>
+          </div>
         </header>
 
         <div className="messages">
