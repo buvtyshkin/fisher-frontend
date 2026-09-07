@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   api,
   continueMessage,
+  generateReply,
   sendMessage,
   swipeMessage,
   type Branch,
@@ -29,7 +30,6 @@ export function App() {
     leaves: 0,
     tip_children: [],
   });
-  const [justForked, setJustForked] = useState(false);
   const [draft, setDraft] = useState("");
   const [streaming, setStreaming] = useState("");
   const [generation, setGeneration] = useState<Generation>({ kind: "idle" });
@@ -65,7 +65,6 @@ export function App() {
 
   useEffect(() => {
     setEditingId(null);
-    setJustForked(false);
     if (!activeId) {
       setBranch({ messages: [], leaves: 0, tip_children: [] });
       return;
@@ -137,7 +136,6 @@ export function App() {
     const content = draft.trim();
     if (!content || !activeId || busy) return;
     setDraft("");
-    setJustForked(false);
     await generate({ kind: "turn" }, (handlers, signal) =>
       sendMessage(activeId, content, handlers, signal),
     );
@@ -155,24 +153,24 @@ export function App() {
 
   async function switchSibling(message: Message, direction: -1 | 1) {
     if (!activeId || busy) return;
-    setJustForked(false);
     const next = message.sibling_ids[message.sibling_index + direction];
     if (!next) return;
     // Switching follows the chosen branch down to its own tip.
     setBranch(await api.setLeaf(activeId, next));
   }
 
-  async function fork(message: Message) {
-    if (!activeId || busy) return;
-    setBranch(await api.setLeaf(activeId, message.id, false));
-    setJustForked(true);
-  }
+  /** Answers the current end of the branch without a new user message. */
+  const generateNow = () => {
+    if (!activeId) return;
+    return generate({ kind: "turn" }, (handlers, signal) =>
+      generateReply(activeId, handlers, signal),
+    );
+  };
 
   /** Jumps into an existing continuation, following it to its own tip. */
   async function goToChild(childId: string) {
     if (!activeId || busy) return;
     setBranch(await api.setLeaf(activeId, childId));
-    setJustForked(false);
   }
 
   async function saveEdit(message: Message) {
@@ -181,8 +179,16 @@ export function App() {
       setEditingId(null);
       return;
     }
+
     setBranch(await api.editMessage(message.id, content));
     setEditingId(null);
+
+    // Editing your own move is the main way to branch, so the model answers the
+    // new wording straight away — as it does on Claude.ai. Editing the model's
+    // words is a correction, and generating there would throw them away.
+    if (message.role === "user") await generate({ kind: "turn" }, (handlers, signal) =>
+      generateReply(message.chat_id, handlers, signal),
+    );
   }
 
   function stop() {
@@ -200,6 +206,12 @@ export function App() {
   const character = characters.find((c) => c.id === activeChat?.character_id);
   const characterName = character?.name;
   const lastMessage = messages.at(-1);
+  // The model owes a reply when the branch ends on the user's move, or on a
+  // greeting the story has not moved past yet.
+  const canGenerate =
+    !!lastMessage &&
+    (lastMessage.role === "user" ||
+      (lastMessage.role === "assistant" && lastMessage.parent_id === null));
 
   // A swipe replaces the message it started from, so hide it while streaming.
   const swipedFrom =
@@ -306,7 +318,6 @@ export function App() {
                     }}
                     onSwipe={() => void swipe(message)}
                     onContinue={() => void continueReply(message)}
-                    onFork={() => void fork(message)}
                   />
                 )}
               </article>
@@ -315,11 +326,7 @@ export function App() {
 
           {!busy && branch.tip_children.length > 0 && (
             <div className="fork-point">
-              <p className="fork-title">
-                {justForked
-                  ? "Вы вернулись сюда. Прежнее продолжение сохранено — оно ниже."
-                  : "Отсюда история уже продолжалась."}
-              </p>
+              <p className="fork-title">Отсюда история уже продолжалась.</p>
               <ul>
                 {branch.tip_children.map((child) => (
                   <li key={child.id}>
@@ -333,7 +340,7 @@ export function App() {
                 ))}
               </ul>
               <p className="fork-hint">
-                Напишите свой ход, чтобы повести историю иначе — появится ещё одна ветка.
+                Напишите свой ход, чтобы повести историю иначе.
               </p>
             </div>
           )}
@@ -360,7 +367,20 @@ export function App() {
           {busy ? (
             <button className="stop" onClick={stop}>Стоп</button>
           ) : (
-            <button onClick={submit} disabled={!activeId || !draft.trim()}>Отправить</button>
+            <>
+              {canGenerate && (
+                <button
+                  className="generate"
+                  title="Получить ответ модели без нового сообщения"
+                  onClick={() => void generateNow()}
+                >
+                  Сгенерировать
+                </button>
+              )}
+              <button onClick={submit} disabled={!activeId || !draft.trim()}>
+                Отправить
+              </button>
+            </>
           )}
         </footer>
       </main>
@@ -410,7 +430,6 @@ interface ControlsProps {
   onEdit: () => void;
   onSwipe: () => void;
   onContinue: () => void;
-  onFork: () => void;
 }
 
 function Controls(props: ControlsProps) {
@@ -440,7 +459,17 @@ function Controls(props: ControlsProps) {
           </button>
         </span>
       )}
-      <button disabled={busy} onClick={props.onEdit}>Править</button>
+      <button
+        disabled={busy}
+        title={
+          message.role === "user"
+            ? "Переписать свой ход. Модель сразу ответит на новую редакцию, прежняя линия останется рядом."
+            : "Переписать ответ модели. Прежний вариант останется рядом."
+        }
+        onClick={props.onEdit}
+      >
+        Править
+      </button>
       {message.role === "assistant" && (
         <button disabled={busy} title="Ещё один вариант ответа" onClick={props.onSwipe}>
           Свайп
@@ -449,15 +478,6 @@ function Controls(props: ControlsProps) {
       {message.role === "assistant" && isLast && (
         <button disabled={busy} title="Дописать оборванный ответ" onClick={props.onContinue}>
           Продолжить
-        </button>
-      )}
-      {!isLast && (
-        <button
-          disabled={busy}
-          title="Вернуться к этому месту и повести историю иначе. Прежнее продолжение сохранится."
-          onClick={props.onFork}
-        >
-          Переиграть отсюда
         </button>
       )}
     </div>

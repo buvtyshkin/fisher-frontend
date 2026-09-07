@@ -49,9 +49,23 @@ const CONTINUE_INSTRUCTION =
   "Не повторяй уже написанное и не добавляй вступлений — просто продолжай текст.";
 
 /**
+ * Asks for the next beat when the branch already ends with the model's own
+ * words — generating after a greeting, for instance. The API rejects a request
+ * whose last turn is the assistant's, so the nudge has to be a user turn.
+ */
+const NEXT_BEAT_INSTRUCTION = "Продолжай сцену.";
+
+/**
+ * SillyTavern's marker for a chat that opens with the character's greeting.
+ * Without it the greeting would have to be dropped — the API requires the
+ * first turn to be the user's — and the model would not see its own opening.
+ */
+const NEW_CHAT_MARKER = "[Start a new Chat]";
+
+/**
  * Converts a branch to Anthropic messages: system nodes are not sent as chat
- * turns yet, a leading assistant message is dropped (the API needs the first
- * turn to be the user's), and neighbours of the same role are squashed.
+ * turns yet, a leading assistant message (a card greeting) is preceded by the
+ * new-chat marker so it survives, and neighbours of the same role are squashed.
  */
 export function toApiMessages(
   branch: Message[],
@@ -62,7 +76,9 @@ export function toApiMessages(
   for (const message of branch) {
     if (message.role === "system") continue;
     const role = message.role === "assistant" ? "assistant" : "user";
-    if (turns.length === 0 && role === "assistant") continue;
+    if (turns.length === 0 && role === "assistant") {
+      turns.push({ role: "user", content: NEW_CHAT_MARKER });
+    }
 
     const last = turns.at(-1);
     if (last?.role === role) {
@@ -95,6 +111,24 @@ function chatContext(chatId: string) {
     persona: persona ?? null,
     system: buildSystemPrompt(card, persona ?? null),
   };
+}
+
+export interface GenerationPlan {
+  parentId: string;
+  extraUser?: string;
+}
+
+/**
+ * How to produce the next reply for a branch. Answering the user's move is the
+ * normal case; a branch ending in the model's own words (a greeting) gets a
+ * nudge instead, because the API will not accept an assistant-last request.
+ */
+export function generationPlan(branch: Message[]): GenerationPlan | null {
+  const tip = branch.at(-1);
+  if (!tip) return null;
+  return tip.role === "assistant"
+    ? { parentId: tip.id, extraUser: NEXT_BEAT_INSTRUCTION }
+    : { parentId: tip.id };
 }
 
 interface StreamOptions {
@@ -314,6 +348,42 @@ export async function chatRoutes(app: FastifyInstance) {
       );
     },
   );
+
+  /**
+   * Answers whatever the branch currently ends with, without a new user
+   * message. Backs the "Сгенерировать" button and the reply that follows
+   * editing one's own message.
+   */
+  app.post<{ Params: IdParams }>("/api/chats/:id/generate", async (req, reply) => {
+    const chat = getChat(req.params.id);
+    if (!chat) return reply.code(404).send({ error: "not found" });
+
+    const branch = getBranch(chat.id);
+    const plan = generationPlan(branch);
+    if (!plan) return reply.code(400).send({ error: "в ветке нет сообщений" });
+
+    await streamGeneration(app, reply, {
+      context: branch,
+      system: chatContext(chat.id).system,
+      extraUser: plan.extraUser,
+      onComplete: (text, model, usage) =>
+        appendMessage({
+          chatId: chat.id,
+          parentId: plan.parentId,
+          role: "assistant",
+          content: text,
+          model,
+          usage,
+        }),
+      onPartial: (text) =>
+        void appendMessage({
+          chatId: chat.id,
+          parentId: plan.parentId,
+          role: "assistant",
+          content: text,
+        }),
+    });
+  });
 
   /** A swipe: another reply to the same parent, kept alongside the old one. */
   app.post<{ Params: IdParams }>("/api/messages/:id/swipe", async (req, reply) => {

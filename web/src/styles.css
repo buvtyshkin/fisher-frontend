@@ -129,6 +129,7 @@ button:disabled { opacity: .4; cursor: default; }
 }
 .composer textarea:focus { outline: none; border-color: var(--accent); }
 .composer .stop { color: var(--danger); border-color: var(--danger); }
+.composer .generate { color: var(--accent); border-color: var(--accent); }
 
 /* Phone layout: sidebar slides over the chat */
 @media (max-width: 720px) {

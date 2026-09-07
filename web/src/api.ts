@@ -243,6 +243,13 @@ export const swipeMessage = (
   signal?: AbortSignal,
 ) => stream(`/api/messages/${messageId}/swipe`, {}, handlers, signal);
 
+/** Answers whatever the branch ends with, without a new user message. */
+export const generateReply = (
+  chatId: string,
+  handlers: StreamHandlers,
+  signal?: AbortSignal,
+) => stream(`/api/chats/${chatId}/generate`, {}, handlers, signal);
+
 /** Continues a reply that stopped mid-sentence, in place. */
 export const continueMessage = (
   messageId: string,

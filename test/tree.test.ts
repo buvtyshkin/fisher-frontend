@@ -23,8 +23,10 @@ const {
   getSiblings,
   pathTo,
   setActiveLeaf,
+  seedGreetings,
   tipChildren,
 } = await import("../server/store.ts");
+const { generationPlan } = await import("../server/routes/chats.ts");
 
 const say = (
   chatId: string,
@@ -233,4 +235,92 @@ test("a long preview is trimmed and stripped of line breaks", () => {
 
 test("an empty chat has no tip children", () => {
   assert.deepEqual(tipChildren(createChat("Пусто").id), []);
+});
+
+test("editing my move branches the story and the reply attaches to the new one", () => {
+  // The Claude.ai shape: edit your own message, the model answers the new
+  // wording, and the old line stays whole beside it.
+  const { chat, a1, q2 } = conversation("Правка как ветвление");
+  const oldReply = say(chat.id, q2.id, "assistant", "ответ на старую редакцию");
+
+  const edited = editMessage(q2.id, "вопрос 2, иначе")!;
+  const newReply = say(chat.id, edited.id, "assistant", "ответ на новую редакцию");
+
+  assert.deepEqual(
+    getBranch(chat.id).map((m) => m.content),
+    ["вопрос 1", "ответ 1", "вопрос 2, иначе", "ответ на новую редакцию"],
+  );
+  assert.equal(newReply.parent_id, edited.id, "the reply hangs off the new wording");
+  assert.equal(countLeaves(chat.id), 2);
+
+  // Nothing dangles: the tip is a real end, so the model owes nothing.
+  assert.deepEqual(tipChildren(chat.id), []);
+  assert.ok(getMessage(oldReply.id), "the old reply survives");
+  assert.equal(a1.id, edited.parent_id);
+});
+
+test("switching back after an edit restores the whole original line", () => {
+  const { chat, q2 } = conversation("Обе линии целы");
+  say(chat.id, q2.id, "assistant", "старый ответ");
+  const edited = editMessage(q2.id, "переписанный ход")!;
+  say(chat.id, edited.id, "assistant", "новый ответ");
+
+  const branch = getBranchWithSiblings(chat.id);
+  const mine = branch.find((m) => m.id === edited.id)!;
+  assert.equal(mine.sibling_ids.length, 2);
+  assert.equal(mine.sibling_index, 1);
+
+  // Step back to the original wording; its own reply must come with it.
+  setActiveLeaf(chat.id, deepestLeaf(mine.sibling_ids[0]));
+  assert.deepEqual(
+    getBranch(chat.id).map((m) => m.content),
+    ["вопрос 1", "ответ 1", "вопрос 2", "старый ответ"],
+  );
+
+  // And forward again to the edited one.
+  setActiveLeaf(chat.id, deepestLeaf(mine.sibling_ids[1]));
+  assert.deepEqual(
+    getBranch(chat.id).map((m) => m.content),
+    ["вопрос 1", "ответ 1", "переписанный ход", "новый ответ"],
+  );
+});
+
+test("no action leaves a chat with no visible way to get a reply", () => {
+  // The invariant: after anything, either the branch already ends on the
+  // model's words, or a generation is offered. `generationPlan` is exactly
+  // what the "Сгенерировать" button is wired to, so testing it tests the UI's
+  // availability rule too.
+  const canRecover = (chatId: string) => {
+    const branch = getBranch(chatId);
+    if (branch.length === 0) return true; // an empty chat asks for a message
+    return generationPlan(branch) !== null;
+  };
+
+  const { chat, a1, q2 } = conversation("Инвариант");
+  const reply = say(chat.id, q2.id, "assistant", "ответ 2");
+  assert.ok(canRecover(chat.id), "после обычного хода");
+
+  // Editing my move: the branch now ends on me, so a reply must be offered.
+  const edited = editMessage(q2.id, "иначе")!;
+  assert.equal(getBranch(chat.id).at(-1)!.id, edited.id);
+  assert.ok(canRecover(chat.id), "после правки моего сообщения");
+
+  // Editing the model's words: the branch ends on the model, nothing owed.
+  setActiveLeaf(chat.id, deepestLeaf(q2.id));
+  const fixed = editMessage(reply.id, "поправленный ответ")!;
+  assert.equal(getBranch(chat.id).at(-1)!.id, fixed.id);
+  assert.ok(canRecover(chat.id), "после правки ответа модели");
+
+  // A greeting-only chat: the model can still be asked for the next beat.
+  const fresh = createChat("Только приветствие");
+  seedGreetings(fresh.id, ["Приветствие."]);
+  assert.ok(canRecover(fresh.id), "в чате с одним приветствием");
+
+  // A generation that died before writing anything leaves my move dangling.
+  const orphaned = createChat("Оборвалось");
+  say(orphaned.id, null, "user", "мой ход без ответа");
+  assert.ok(canRecover(orphaned.id), "после сорвавшейся генерации");
+
+  assert.ok(canRecover(createChat("Пустой чат").id), "в пустом чате");
+  assert.ok(a1);
 });
